@@ -28,6 +28,8 @@ export interface CoreClientOptions {
   onError?: (message: string) => void;
   /** Called with frames-per-second roughly once a second. */
   onFps?: (fps: number) => void;
+  /** Called once a game is loaded, saying whether rewind is worth offering. */
+  onRewindReady?: (available: boolean, seconds: number) => void;
 }
 
 export interface LoadOptions {
@@ -198,6 +200,11 @@ export class CoreClient {
     this.send({ type: 'setLayout', layout });
   }
 
+  /** While active, the worker steps backwards through its state history. */
+  setRewind(active: boolean): void {
+    this.send({ type: 'setRewind', active });
+  }
+
   setSpeed(percent: number): void {
     this.send({ type: 'setSpeed', percent });
   }
@@ -257,6 +264,10 @@ export class CoreClient {
     switch (message.type) {
       case 'ready':
         this.resolveReady(message.usingShared);
+        break;
+
+      case 'rewindReady':
+        this.options.onRewindReady?.(message.available, message.seconds);
         break;
 
       case 'loaded':

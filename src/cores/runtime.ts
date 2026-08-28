@@ -44,6 +44,29 @@ const AUDIO_STALL_MS = 250;
  */
 const MAX_FRAMES_PER_SLICE = 8;
 
+/* --- Rewind ------------------------------------------------------------- */
+
+/**
+ * How often the machine's state is captured while playing. Every twelfth frame
+ * is five snapshots a second: fine enough that stepping back feels continuous,
+ * coarse enough not to cost a noticeable amount of time per frame.
+ */
+const REWIND_INTERVAL_FRAMES = 12;
+/** Total memory the history may occupy. */
+const REWIND_BUDGET_BYTES = 48 * 1024 * 1024;
+/**
+ * A single state larger than this makes rewind pointless — a Nintendo DS state
+ * is around 19 MB, so a history worth having would not fit in memory at all.
+ * Those systems simply do not offer it.
+ */
+const REWIND_MAX_STATE_BYTES = 8 * 1024 * 1024;
+/**
+ * Wall-clock frames between two steps back. A snapshot is twelve emulated
+ * frames apart, so stepping every fourth frame rewinds at about three times
+ * real speed — fast enough to undo a mistake, slow enough to see where to stop.
+ */
+const REWIND_STEP_EVERY_FRAMES = 4;
+
 /** Builds the core once the module URL is known. */
 export type CoreFactory = (coreUrl: string) => Promise<EmulatorCore>;
 
@@ -67,6 +90,13 @@ export function startWorkerRuntime(createCore: CoreFactory): void {
   let lastDrainAt = 0;
   /** Ring position this worker set itself; movement to it is not the audio thread. */
   let discardedTo = -1;
+
+  /** Most recent first; each entry is a complete machine state. */
+  let rewindHistory: ArrayBuffer[] = [];
+  let rewindDepth = 0;
+  let rewindAvailable = false;
+  let rewinding = false;
+  let framesSinceCapture = 0;
 
   const post = (message: FromWorker, transfer: Transferable[] = []) =>
     (self as DedicatedWorkerGlobalScope).postMessage(message, transfer);
@@ -95,11 +125,9 @@ export function startWorkerRuntime(createCore: CoreFactory): void {
 
   /* --- Frame stepping --------------------------------------------------- */
 
-  const stepFrame = (): void => {
+  /** Publishes whatever the core currently shows, without emulating. */
+  const publishFrame = (audioFrames: number): void => {
     if (!core) return;
-
-    core.setKeyMask(shared ? Atomics.load(shared.ctl, Ctl.KEY_MASK) : keyMask);
-    const audioFrames = core.runFrame();
     const pixels = core.framePixels();
 
     if (shared) {
@@ -132,6 +160,40 @@ export function startWorkerRuntime(createCore: CoreFactory): void {
         post({ type: 'audio', samples: copy }, [copy]);
       }
     }
+  };
+
+  const stepFrame = (): void => {
+    if (!core) return;
+
+    core.setKeyMask(shared ? Atomics.load(shared.ctl, Ctl.KEY_MASK) : keyMask);
+    const audioFrames = core.runFrame();
+    publishFrame(audioFrames);
+
+    if (rewindAvailable && ++framesSinceCapture >= REWIND_INTERVAL_FRAMES) {
+      framesSinceCapture = 0;
+      const state = core.readState();
+      if (state) {
+        rewindHistory.unshift(state);
+        if (rewindHistory.length > rewindDepth) rewindHistory.length = rewindDepth;
+      }
+    }
+  };
+
+  /** Steps one snapshot back. Returns false once the history runs out. */
+  const stepBack = (): boolean => {
+    if (!core) return false;
+    const state = rewindHistory.shift();
+    if (!state) return false;
+
+    core.loadState(new Uint8Array(state));
+    // Restoring a state does not redraw anything: the frame buffer still holds
+    // the last picture that was emulated. One frame from the restored state
+    // produces the picture that belongs to it — a net step backwards, since a
+    // snapshot is a dozen frames apart.
+    core.runFrame();
+    // Whatever audio that frame produced is dropped; rewinding is silent.
+    publishFrame(0);
+    return true;
   };
 
   /* --- Pacing ----------------------------------------------------------- */
@@ -176,6 +238,18 @@ export function startWorkerRuntime(createCore: CoreFactory): void {
       loopScheduled = false;
       return;
     }
+    if (rewinding) {
+      // Paced on the clock: rewinding produces no audio, so the ring cannot be
+      // the clock here.
+      const now = performance.now();
+      if (now >= nextFrameAt) {
+        nextFrameAt = Math.max(now, nextFrameAt) + frameInterval() * REWIND_STEP_EVERY_FRAMES;
+        stepBack();
+      }
+      setTimeout(pump, 1);
+      return;
+    }
+
     let budget = MAX_FRAMES_PER_SLICE;
     while (running && budget-- > 0 && shouldStepNow(performance.now())) stepFrame();
     setTimeout(pump, 1);
@@ -247,7 +321,22 @@ export function startWorkerRuntime(createCore: CoreFactory): void {
 
           core.reset();
           frameRate = core.frameRate() || 59.727;
+
+          // Whether a history is worth keeping depends on how big one state is,
+          // which is only knowable once a game is loaded.
+          rewindHistory = [];
+          framesSinceCapture = 0;
+          const probe = core.readState();
+          const stateBytes = probe?.byteLength ?? 0;
+          rewindAvailable = stateBytes > 0 && stateBytes <= REWIND_MAX_STATE_BYTES;
+          rewindDepth = rewindAvailable ? Math.floor(REWIND_BUDGET_BYTES / stateBytes) : 0;
+
           post({ type: 'loaded', frameRate, hasBattery: core.batterySize() > 0 });
+          post({
+            type: 'rewindReady',
+            available: rewindAvailable,
+            seconds: (rewindDepth * REWIND_INTERVAL_FRAMES) / frameRate,
+          });
           break;
         }
 
@@ -287,6 +376,11 @@ export function startWorkerRuntime(createCore: CoreFactory): void {
 
         case 'setLayout':
           core?.setLayout?.(message.layout);
+          break;
+
+        case 'setRewind':
+          rewinding = message.active && rewindAvailable;
+          if (rewinding) nextFrameAt = performance.now();
           break;
 
         case 'requestBattery':

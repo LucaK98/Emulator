@@ -28,6 +28,11 @@ import {
   type GamepadMapping,
 } from '../input/gamepad';
 import type { ButtonName } from '../core/systems';
+import {
+  loadDisplaySettings,
+  saveDisplaySettings,
+  type DisplaySettings,
+} from './displaySettings';
 
 interface Props {
   isolation: Exclude<IsolationState, { status: 'reloading' }>;
@@ -57,6 +62,7 @@ export function Settings({ isolation, storage, onStorageChange, onClose }: Props
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [display, setDisplay] = useState<DisplaySettings>(loadDisplaySettings);
   const [mapping, setMapping] = useState<GamepadMapping>(loadMapping);
   const [padName, setPadName] = useState<string | null>(null);
   const [binding, setBinding] = useState<ButtonName | null>(null);
@@ -184,6 +190,38 @@ export function Settings({ isolation, storage, onStorageChange, onClose }: Props
         >
           Neu prüfen
         </button>
+      </section>
+
+      <section class="panel">
+        <h2>Bild</h2>
+        <p class="muted">
+          Ein Gitter zwischen den Pixeln, wie es die Zwischenräume eines LCD zeichnen. Es blendet
+          sich aus, wenn ein emulierter Pixel zu klein wird, um noch eine Lücke zu tragen. Wirkt
+          erst beim nächsten Spielstart.
+        </p>
+        <label class="slider">
+          <span class="slider-label">
+            LCD-Gitter
+            <span class="slider-value">
+              {display.lcdGrid === 0 ? 'aus' : `${Math.round(display.lcdGrid * 100)} %`}
+            </span>
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={0.6}
+            step={0.05}
+            value={display.lcdGrid}
+            onInput={(event) => {
+              const next = {
+                ...display,
+                lcdGrid: Number((event.currentTarget as HTMLInputElement).value),
+              };
+              setDisplay(next);
+              saveDisplaySettings(next);
+            }}
+          />
+        </label>
       </section>
 
       <section class="panel">

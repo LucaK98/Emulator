@@ -15,8 +15,15 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { bit, type InputState } from '../input/InputState';
 import type { ButtonName } from '../core/systems';
 
+/** Held controls that act on the emulator rather than on the console. */
+export type PlayerAction = 'rewind' | 'fastForward';
+
 interface Props {
   input: InputState;
+  /** Which emulator actions to offer; rewind is not possible on every system. */
+  actions: PlayerAction[];
+  /** Called as an action is pressed and released. */
+  onAction: (action: PlayerAction, pressed: boolean) => void;
   /** Buttons this console has; the shoulder pair only exists on the GBA. */
   buttons: ButtonName[];
   /** Called when the menu button is tapped. */
@@ -42,7 +49,14 @@ const DPAD_REACH = 1.75;
 /** Extra hit radius around the face buttons, in pixels. */
 const BUTTON_SLOP = 10;
 
-export function TouchControls({ input, buttons, onMenu, disabled = false }: Props) {
+export function TouchControls({
+  input,
+  buttons,
+  actions,
+  onAction,
+  onMenu,
+  disabled = false,
+}: Props) {
   const hasShoulders = buttons.includes('L');
   const hasDiamond = buttons.includes('X');
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -55,8 +69,12 @@ export function TouchControls({ input, buttons, onMenu, disabled = false }: Prop
   const shoulderRightRef = useRef<HTMLButtonElement>(null);
   const xRef = useRef<HTMLButtonElement>(null);
   const yRef = useRef<HTMLButtonElement>(null);
+  const rewindRef = useRef<HTMLButtonElement>(null);
+  const forwardRef = useRef<HTMLButtonElement>(null);
 
   const [pressed, setPressed] = useState(0);
+  const [held, setHeld] = useState<PlayerAction[]>([]);
+  const heldRef = useRef<PlayerAction[]>([]);
 
   useEffect(() => {
     const surface = surfaceRef.current;
@@ -82,6 +100,8 @@ export function TouchControls({ input, buttons, onMenu, disabled = false }: Prop
         shoulderRight: rectOf(shoulderRightRef.current),
         x: circleOf(xRef.current, BUTTON_SLOP),
         y: circleOf(yRef.current, BUTTON_SLOP),
+        rewind: rectOf(rewindRef.current),
+        forward: rectOf(forwardRef.current),
       };
     }
 
@@ -128,11 +148,33 @@ export function TouchControls({ input, buttons, onMenu, disabled = false }: Prop
       return mask;
     }
 
+    /** Which emulator actions the current pointers are holding down. */
+    function heldActions(): PlayerAction[] {
+      const { rewind, forward } = geometry;
+      const active: PlayerAction[] = [];
+      for (const point of pointers.values()) {
+        if (rewind && inRect(rewind, point.x, point.y) && !active.includes('rewind')) {
+          active.push('rewind');
+        }
+        if (forward && inRect(forward, point.x, point.y) && !active.includes('fastForward')) {
+          active.push('fastForward');
+        }
+      }
+      return active;
+    }
+
     function recompute() {
       let mask = 0;
       for (const point of pointers.values()) mask |= maskFor(point.x, point.y);
       input.set('touch', mask);
       setPressed(mask);
+
+      const active = heldActions();
+      const previous = heldRef.current;
+      for (const action of active) if (!previous.includes(action)) onAction(action, true);
+      for (const action of previous) if (!active.includes(action)) onAction(action, false);
+      heldRef.current = active;
+      setHeld(active);
     }
 
     const onPointerDown = (event: PointerEvent) => {
@@ -172,7 +214,7 @@ export function TouchControls({ input, buttons, onMenu, disabled = false }: Prop
       window.removeEventListener('orientationchange', remeasure);
       input.set('touch', 0);
     };
-  }, [input, disabled, hasShoulders, hasDiamond]);
+  }, [input, disabled, hasShoulders, hasDiamond, actions.length, onAction]);
 
   const on = (name: ButtonName) => ((pressed & bit(name)) !== 0 ? ' is-pressed' : '');
 
@@ -235,6 +277,31 @@ export function TouchControls({ input, buttons, onMenu, disabled = false }: Prop
         <button type="button" class="pill pill-menu" data-passthrough onClick={onMenu}>
           Menü
         </button>
+
+        {actions.length > 0 && (
+          <div class="action-pills">
+            {actions.includes('rewind') && (
+              <button
+                type="button"
+                class={`pill pill-action${held.includes('rewind') ? ' is-pressed' : ''}`}
+                ref={rewindRef}
+                aria-label="Zurückspulen"
+              >
+                ⏪
+              </button>
+            )}
+            {actions.includes('fastForward') && (
+              <button
+                type="button"
+                class={`pill pill-action${held.includes('fastForward') ? ' is-pressed' : ''}`}
+                ref={forwardRef}
+                aria-label="Vorspulen"
+              >
+                ⏩
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

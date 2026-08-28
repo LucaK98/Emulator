@@ -2,7 +2,7 @@
 
 Ein privater Emulator für **Game Boy, Game Boy Color, Game Boy Advance und Nintendo DS**, gebaut als installierbare Web-App (PWA) für das iPhone. ROMs und Spielstände bleiben ausschließlich auf dem Gerät.
 
-Alle vier Systeme laufen.
+Alle vier Systeme laufen, das Projekt ist fertig.
 
 Das besondere Feature ist ein **2.5D-Renderer für Game-Boy-Spiele**: der Core gibt die PPU-Ebenen getrennt aus, der Renderer baut daraus eine echte 3D-Szene mit Kamera, Tiefe und Schatten.
 
@@ -18,7 +18,7 @@ Das besondere Feature ist ein **2.5D-Renderer für Game-Boy-Spiele**: der Core g
 | 3 | 2.5D-Renderer für Game Boy / Color | ✅ fertig |
 | 4 | Game Boy Advance (mGBA) | ✅ fertig |
 | 5 | Nintendo DS (melonDS) | ✅ fertig |
-| 6 | Feinschliff: Rewind, Fast-Forward, Shader | offen |
+| 6 | Feinschliff: Rücklauf, Schnellvorlauf, Shader, Screenshots | ✅ fertig |
 
 ## Auf dem iPhone einrichten
 
@@ -53,6 +53,10 @@ Für den GBA gibt es das noch nicht: Der Tiefen-Renderer liest die Game-Boy-PPU 
 **Touchscreen.** Ein Tipp auf die Zeichenfläche wird zweimal umgerechnet: aus dem Element in das tatsächlich gezeichnete Rechteck, und von dort in den unteren Bildschirm — der je nach Anordnung woanders liegt. Tipper daneben werden verworfen statt geraten.
 
 **Ton beim DS.** Die Game-Boy-Cores lassen sich auf die Rate des AudioContext umstimmen; die DS-Soundhardware nicht. Ihre Ausgabe wird deshalb im Wrapper resampelt, und zwar auf genau eine Frame-Länge pro Bild — dadurch stimmt das Tempo unabhängig von der Hardware-Rate.
+
+**Rücklauf.** Während des Spielens wird alle zwölf Bilder der komplette Maschinenzustand mitgeschnitten. Hält man die Rücklauf-Taste, arbeitet der Worker diese Schnappschüsse rückwärts ab — mit etwa dreifacher Geschwindigkeit, schnell genug um einen Fehler zurückzunehmen und langsam genug um zu sehen, wo man aufhören will. Ein geladener Zustand zeichnet für sich noch kein Bild, deshalb wird nach jedem Schritt ein Bild emuliert; unterm Strich geht es trotzdem rückwärts, weil zwischen zwei Schnappschüssen zwölf Bilder liegen.
+
+Ob es den Rücklauf überhaupt gibt, entscheidet die Größe eines Zustands: beim Game Boy sind das 50 KB und die Historie reicht Minuten weit, beim DS 19 MB — dort wäre eine brauchbare Historie nicht im Speicher zu halten, also wird der Rücklauf gar nicht erst angeboten und das Pausenmenü sagt warum.
 
 **Speichern.** Zwei Mechanismen laufen parallel. Batteriegepufferter Cartridge-RAM wird alle zwei Sekunden mit dem Gespeicherten verglichen und nur bei Änderung geschrieben. Zusätzlich entsteht bei `pagehide` und `visibilitychange` ein automatischer Savestate — das ist der letzte Moment, den iOS zusichert, bevor es eine App im Hintergrund abräumt. Beim erneuten Öffnen wird dieser Stand wiederhergestellt.
 
@@ -101,6 +105,8 @@ Die Unit-Tests fahren den gebauten Core direkt in Node:
 Die Browser-Tests importieren eine ROM, spielen sie, beenden und laden neu (der Spielstand muss den Reload überleben), schalten 2.5D ein und prüfen, dass sich das Bild ändert und das Modell die richtige Kachel anhebt. Für den GBA prüfen sie zusätzlich, dass das Bild im richtigen Seitenverhältnis gezeichnet wird und die Schultertasten erscheinen.
 
 Für den DS prüfen sie Import, beide Bildschirm-Anordnungen und dass die zusätzlichen Tasten erscheinen. Die Touchscreen-Umrechnung hat eigene Unit-Tests, weil sie sich ohne Gerät prüfen lässt.
+
+Der Rücklauf-Test misst die Richtung: Das Test-ROM scrollt seine Karte um ein Pixel pro Bild, also lässt sich am Bild ablesen, wohin die Reise geht — beim Zurückspulen muss sich das Vorzeichen umdrehen. „Irgendetwas hat sich geändert" wäre kein Beweis.
 
 Der Sicherungs-Test geht den ganzen Weg: Slot schreiben, Backup erzeugen, das Spiel samt Ständen löschen, das Backup wieder einspielen — danach muss der Slot erneut ladbar sein.
 

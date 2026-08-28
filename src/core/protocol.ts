@@ -217,6 +217,7 @@ export type ToWorker =
   | { type: 'touch'; x: number; y: number }
   | { type: 'releaseTouch' }
   | { type: 'setLayout'; layout: number }
+  | { type: 'setRewind'; active: boolean }
   | { type: 'requestBattery'; token: number }
   | { type: 'requestState'; token: number }
   | { type: 'loadState'; data: ArrayBuffer; token: number }
@@ -224,6 +225,7 @@ export type ToWorker =
 
 export type FromWorker =
   | { type: 'ready'; usingShared: boolean }
+  | { type: 'rewindReady'; available: boolean; seconds: number }
   | { type: 'loaded'; frameRate: number; hasBattery: boolean }
   | { type: 'frame'; pixels: ArrayBuffer; seq: number }
   | { type: 'audio'; samples: ArrayBuffer }

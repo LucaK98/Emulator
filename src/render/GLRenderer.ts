@@ -28,9 +28,27 @@ const FRAGMENT_SHADER = `#version 300 es
 precision mediump float;
 in vec2 v_uv;
 uniform sampler2D u_frame;
+uniform vec2 u_frameSize;   // picture size in emulated pixels
+uniform float u_grid;       // strength of the LCD grid, 0 disables it
+uniform float u_scale;      // how many device pixels one emulated pixel covers
 out vec4 outColor;
+
 void main() {
-  outColor = texture(u_frame, v_uv);
+  vec4 colour = texture(u_frame, v_uv);
+
+  if (u_grid > 0.0) {
+    // Darken the edge of every emulated pixel, the way the gaps between an
+    // LCD's cells read. Below a few device pixels per emulated pixel there is
+    // no room for a gap, so the effect fades out rather than muddying the
+    // picture.
+    vec2 within = fract(v_uv * u_frameSize);
+    float edge = min(min(within.x, 1.0 - within.x), min(within.y, 1.0 - within.y));
+    float lit = smoothstep(0.0, 0.12, edge);
+    float strength = u_grid * clamp((u_scale - 2.0) / 2.0, 0.0, 1.0);
+    colour.rgb *= mix(1.0 - strength, 1.0, lit);
+  }
+
+  outColor = colour;
 }`;
 
 export class GLRenderer implements SceneRenderer {
@@ -43,6 +61,8 @@ export class GLRenderer implements SceneRenderer {
   private disposed = false;
   private frameWidth: number;
   private frameHeight: number;
+  /** LCD grid strength, 0 to 1. */
+  gridStrength = 0;
 
   private constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -131,6 +151,16 @@ export class GLRenderer implements SceneRenderer {
       gl.getUniformLocation(this.program, 'u_uvScale'),
       this.frameWidth / this.spec.width,
       this.frameHeight / this.spec.height,
+    );
+    gl.uniform2f(
+      gl.getUniformLocation(this.program, 'u_frameSize'),
+      this.spec.width,
+      this.spec.height,
+    );
+    gl.uniform1f(gl.getUniformLocation(this.program, 'u_grid'), this.gridStrength);
+    gl.uniform1f(
+      gl.getUniformLocation(this.program, 'u_scale'),
+      view.width / Math.max(1, this.frameWidth),
     );
     gl.bindVertexArray(this.vao);
     gl.activeTexture(gl.TEXTURE0);

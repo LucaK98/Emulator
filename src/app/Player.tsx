@@ -18,12 +18,14 @@ import {
 } from '../render/Depth25DRenderer';
 import { DepthControls } from './DepthControls';
 import { InputState, attachKeyboard } from '../input/InputState';
-import { TouchControls } from './TouchControls';
+import { TouchControls, type PlayerAction } from './TouchControls';
 import { SaveSlots } from './SaveSlots';
 import { GamepadReader } from '../input/gamepad';
 import { frameToDataUrl } from './frameThumbnail';
 import { SYSTEMS } from '../core/systems';
 import { mapToTouchScreen } from '../input/touchScreen';
+import { loadDisplaySettings } from './displaySettings';
+import { shareOrDownload } from '../storage/backup';
 import {
   AUTO_SLOT,
   getRom,
@@ -42,6 +44,8 @@ const BATTERY_POLL_MS = 2000;
 const AUTO_STATE_MS = 60_000;
 /** Camera settings are a personal preference, so they are shared across games. */
 const DEPTH_SETTINGS_KEY = 'depth-settings';
+/** Emulation speed while fast-forward is held, in percent. */
+const FAST_FORWARD_PERCENT = 300;
 
 function loadDepthSettings(): DepthSettings {
   try {
@@ -76,6 +80,8 @@ export function Player({ game, baseUrl, onExit }: Props) {
   const [restored, setRestored] = useState(false);
 
   const [layout, setLayout] = useState(0);
+  const [rewind, setRewind] = useState({ available: false, seconds: 0 });
+  const [shotNotice, setShotNotice] = useState<string | null>(null);
   const [depthMode, setDepthMode] = useState(game.depth3d ?? false);
   const [depthSettings, setDepthSettings] = useState<DepthSettings>(loadDepthSettings);
   const depthRef = useRef<Depth25DRenderer | null>(null);
@@ -144,6 +150,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
         setPhase('error');
       },
       onFps: setFps,
+      onRewindReady: (available, seconds) => setRewind({ available, seconds }),
     });
     coreRef.current = core;
 
@@ -202,6 +209,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
 
     depthRef.current = useDepth ? (renderer as Depth25DRenderer) : null;
     if (depthRef.current) depthRef.current.settings = depthSettings;
+    else (renderer as GLRenderer).gridStrength = loadDisplaySettings().lcdGrid;
     coreRef.current?.attachRenderer(renderer);
 
     return () => {
@@ -282,6 +290,35 @@ export function Player({ game, baseUrl, onExit }: Props) {
       canvas.removeEventListener('pointercancel', onUp);
     };
   }, [spec, layout, phase === 'error']);
+
+  /**
+   * Rewind and fast-forward act on the emulator rather than the console, so
+   * they are held like buttons but routed past the input mask.
+   */
+  const onAction = useCallback((action: PlayerAction, pressed: boolean) => {
+    const core = coreRef.current;
+    if (!core) return;
+    if (action === 'fastForward') core.setSpeed(pressed ? FAST_FORWARD_PERCENT : 100);
+    else core.setRewind(pressed);
+  }, []);
+
+  const takeScreenshot = async () => {
+    const core = coreRef.current;
+    const frame = core?.currentFrame();
+    if (!frame) return;
+
+    const dataUrl = frameToDataUrl(frame, {
+      ...spec,
+      width: core!.frameWidth,
+      height: core!.frameHeight,
+    });
+    if (!dataUrl) return;
+
+    const blob = await (await fetch(dataUrl)).blob();
+    const name = `${game.title.replace(/[^\w-]+/g, '_') || 'screenshot'}.png`;
+    const how = await shareOrDownload(blob, name);
+    setShotNotice(how === 'shared' ? 'Screenshot geteilt' : 'Screenshot gespeichert');
+  };
 
   const changeLayout = (next: number) => {
     setLayout(next);
@@ -427,6 +464,10 @@ export function Player({ game, baseUrl, onExit }: Props) {
             <button type="button" class="ghost-button" onClick={() => void restart()}>
               Neu starten
             </button>
+            <button type="button" class="ghost-button" onClick={() => void takeScreenshot()}>
+              Screenshot
+            </button>
+            {shotNotice && <p class="footnote">{shotNotice}</p>}
             <button type="button" class="ghost-button" onClick={() => void exit()}>
               Speichern und beenden
             </button>
@@ -467,6 +508,11 @@ export function Player({ game, baseUrl, onExit }: Props) {
               onChange={changeDepthSettings}
             />
 
+            <p class="footnote">
+              {rewind.available
+                ? `Rücklauf: bis zu ${Math.round(rewind.seconds)} s`
+                : 'Rücklauf für dieses System nicht möglich — die Zwischenstände sind zu groß'}
+            </p>
             <p class="footnote fps-readout">{fps.toFixed(0)} fps</p>
           </Overlay>
         )}
@@ -475,6 +521,8 @@ export function Player({ game, baseUrl, onExit }: Props) {
       <TouchControls
         input={inputRef.current}
         buttons={spec.buttons}
+        actions={rewind.available ? ['rewind', 'fastForward'] : ['fastForward']}
+        onAction={onAction}
         onMenu={() => void openMenu()}
         disabled={phase !== 'running' || menuOpen}
       />
