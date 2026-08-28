@@ -1,0 +1,31 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# Emscripten / core build output lands here and is rebuilt, never committed.
+vendor/**/build/
+public/cores/
+
+# Never commit game images or personal save data. Test ROMs live under
+# tests/roms/ and are explicitly re-included below.
+*.gb
+*.gbc
+*.gba
+*.nds
+*.dsi
+*.srm
+*.sav
+*.state
+!tests/roms/**/*.gb
+!tests/roms/**/*.gbc
+
+.DS_Store
+.env
+.env.local

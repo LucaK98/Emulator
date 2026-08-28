@@ -1,0 +1,233 @@
+/*
+ * Base shell styling.
+ *
+ * Two iOS-specific concerns drive most of this file: content must stay clear of
+ * the notch and home indicator (env(safe-area-inset-*)), and the page must not
+ * behave like a document — no rubber-band scroll, no double-tap zoom, no text
+ * selection when hammering on-screen buttons.
+ */
+
+:root {
+  --bg: #0e1116;
+  --surface: #161b23;
+  --surface-raised: #1d2530;
+  --border: #262f3b;
+  --text: #e6ebf2;
+  --text-muted: #8d99a8;
+  --accent: #9bbc0f;
+  --ok: #6ee7a8;
+  --warn: #f0b76a;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  /* Stop the whole page from bouncing; individual panes opt into scrolling. */
+  overscroll-behavior: none;
+  /* Removes the 300ms double-tap-to-zoom delay without killing scrolling. */
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  /* dvh follows the collapsing Safari toolbars; vh does not. */
+  min-height: 100dvh;
+}
+
+#app {
+  min-height: 100dvh;
+}
+
+/* Anything interactive should never show a selection caret or callout menu. */
+button,
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.screen {
+  min-height: 100dvh;
+  padding:
+    calc(var(--safe-top) + 1.25rem) calc(var(--safe-right) + 1.25rem)
+    calc(var(--safe-bottom) + 1.25rem) calc(var(--safe-left) + 1.25rem);
+}
+
+.centered {
+  display: grid;
+  place-items: center;
+}
+
+h1 {
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+h2 {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+}
+
+.lede {
+  font-size: 1.0625rem;
+  margin: 0 0 0.75rem;
+}
+
+.muted {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.footnote {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+/* --- Install gate ------------------------------------------------------- */
+
+.onboarding {
+  display: grid;
+  place-items: center;
+}
+
+.onboarding-card h1 {
+  margin-bottom: 0.75rem;
+}
+
+.onboarding-card {
+  max-width: 26rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 1.5rem;
+}
+
+.steps {
+  margin: 1.25rem 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 0.625rem;
+}
+
+.steps strong {
+  font-weight: 600;
+}
+
+.inline-icon {
+  vertical-align: -0.3em;
+  color: var(--accent);
+}
+
+.ghost-button {
+  margin-top: 1rem;
+  width: 100%;
+  min-height: 44px; /* Apple's minimum comfortable touch target. */
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  font: inherit;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.ghost-button:active {
+  background: var(--surface-raised);
+}
+
+.warning {
+  color: var(--warn);
+  font-size: 0.8125rem;
+  margin: 0.5rem 0 0;
+  text-align: center;
+}
+
+/* --- Library ------------------------------------------------------------ */
+
+.library {
+  display: grid;
+  gap: 1.5rem;
+  align-content: start;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.empty-state {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 1.25rem;
+}
+
+.diagnostics dl {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+}
+
+.row + .row {
+  border-top: 1px solid var(--border);
+}
+
+.row dt {
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+}
+
+.row dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.status-ok {
+  color: var(--ok);
+}
+
+.status-warn {
+  color: var(--warn);
+}
+
+.status-neutral {
+  color: var(--text);
+}

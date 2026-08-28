@@ -1,0 +1,27 @@
+{
+  "name": "emulator-pwa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Privater Multi-System-Emulator (GB/GBC/GBA/DS) als installierbare iPhone-PWA",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "gen:icons": "python3 scripts/gen-icons.py"
+  },
+  "dependencies": {
+    "preact": "^10.28.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^26.4.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.14",
+    "vitest": "^3.2.4"
+  }
+}
