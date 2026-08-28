@@ -8,7 +8,7 @@
  */
 
 import { AudioOutput } from '../audio/AudioOutput';
-import type { GLRenderer } from '../render/GLRenderer';
+import type { SceneRenderer } from '../render/SceneRenderer';
 import {
   Ctl,
   FRAME_PIXELS,
@@ -38,7 +38,7 @@ export class CoreClient {
   private shared: SharedArrayBuffer | null = null;
   private views: SharedViews | null = null;
   private audio = new AudioOutput();
-  private renderer: GLRenderer | null = null;
+  private renderer: SceneRenderer | null = null;
 
   private rafHandle = 0;
   private lastSeq = -1;
@@ -89,8 +89,17 @@ export class CoreClient {
     this.usingShared = await this.readyPromise;
   }
 
-  attachRenderer(renderer: GLRenderer | null): void {
+  /**
+   * Installs the renderer and tells the worker whether it needs PPU state.
+   * Capturing costs ~18 KiB a frame, so it stays off for the flat renderer.
+   */
+  attachRenderer(renderer: SceneRenderer | null): void {
     this.renderer = renderer;
+    this.setPpuCapture(renderer?.needsPpuState ?? false);
+  }
+
+  private setPpuCapture(enabled: boolean): void {
+    if (this.views) Atomics.store(this.views.ctl, Ctl.CAPTURE_PPU, enabled ? 1 : 0);
   }
 
   async load(options: LoadOptions): Promise<void> {
@@ -241,10 +250,10 @@ export class CoreClient {
     const tick = () => {
       this.rafHandle = requestAnimationFrame(tick);
 
-      const pixels = this.nextFrame();
-      if (pixels && this.renderer) {
+      const frame = this.nextFrame();
+      if (frame && this.renderer) {
         this.renderer.resize(window.devicePixelRatio || 1);
-        this.renderer.draw(pixels);
+        this.renderer.render(frame.pixels, frame.ppu);
         framesDrawn++;
       }
 
@@ -260,19 +269,23 @@ export class CoreClient {
   }
 
   /** Returns the newest completed frame, or null if nothing new arrived. */
-  private nextFrame(): Uint32Array | null {
+  private nextFrame(): { pixels: Uint32Array; ppu: Uint8Array | null } | null {
     if (this.views) {
       const seq = Atomics.load(this.views.ctl, Ctl.FRAME_SEQ);
       if (seq === this.lastSeq) return null;
       this.lastSeq = seq;
       const slot = Atomics.load(this.views.ctl, Ctl.FRAME_SLOT);
-      const frame = this.views.frames[slot];
-      return frame && frame.length === FRAME_PIXELS ? frame : null;
+      const pixels = this.views.frames[slot];
+      if (!pixels || pixels.length !== FRAME_PIXELS) return null;
+      const ppu = this.renderer?.needsPpuState ? (this.views.ppu[slot] ?? null) : null;
+      return { pixels, ppu };
     }
 
-    const frame = this.fallbackFrame;
+    const pixels = this.fallbackFrame;
     this.fallbackFrame = null;
-    return frame;
+    // Without shared memory there is no PPU capture, so only the flat renderer
+    // works; the player keeps depth mode disabled in that case.
+    return pixels ? { pixels, ppu: null } : null;
   }
 
   private stopRenderLoop(): void {

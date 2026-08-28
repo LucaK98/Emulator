@@ -13,7 +13,7 @@ Das besondere Feature ist ein **2.5D-Renderer für Game-Boy-Spiele**: der Core g
 | 0 | Fundament: PWA-Shell, Cross-Origin-Isolation, Speicher-Persistenz, CI/Deploy | ✅ fertig |
 | 1 | Game Boy / Color spielbar (SameBoy-Core, Renderer, Audio, Touch-Controls) | ✅ fertig |
 | 2 | Savestate-Slots, Export/Import, Controller-Support | offen |
-| 3 | 2.5D-Renderer | offen |
+| 3 | 2.5D-Renderer für Game Boy / Color | ✅ fertig |
 | 4 | Game Boy Advance (mGBA) | offen |
 | 5 | Nintendo DS (melonDS) | offen |
 | 6 | Feinschliff: Rewind, Fast-Forward, Shader | offen |
@@ -33,6 +33,14 @@ Schritt 2 ist keine Kür. Safari löscht Website-Daten nach sieben Tagen ohne Nu
 **Threads.** Ein Worker besitzt den Core und die Uhr. Bild und Ton wandern über einen `SharedArrayBuffer`: der Renderer liest die Pixel, die der Worker hineingeschrieben hat, und das AudioWorklet leert den Ringpuffer auf dem Audio-Thread, ohne den Main-Thread zu wecken.
 
 **Taktung.** Das Audiogerät ist die Uhr. Ein Frame wird emuliert, wenn im Ringpuffer Platz für den Ton ist, den er erzeugt — dadurch läuft die Emulation ohne Drift synchron zur Ausgabe. Wenn nichts abgespielt wird (stummes Gerät, angehaltener AudioContext, Headless-Browser), erkennt der Worker den stehenden Ring, verwirft den Rückstau und taktet auf die Wanduhr um: das Spiel läuft dann still weiter, statt einzufrieren.
+
+**2.5D.** Der Renderer arbeitet nicht mit dem fertigen Bild, sondern baut die Szene aus dem PPU-Zustand neu auf: Der Hintergrund wird ein Raster aus Blöcken, jeder Hardware-Sprite ein aufrecht stehendes Billboard mit Schatten, und die Fenster-Ebene bleibt flach obenauf — dort liegen Textboxen und Statusleisten, die gehören auf die Scheibe, nicht in die Welt. Die Farben kommen aus den Paletten, die der Core ohnehin schon auflöst, deshalb sieht eine Szene außer der Perspektive genauso aus wie flach.
+
+**Wie die Höhen entstehen.** Nirgendwo in einem Game-Boy-Modul steht, wie hoch eine Kachel ist, und der Sinn des Features ist ja, dass es ohne spielspezifische Tabellen funktioniert. Also wird die Höhe aus etwas abgeleitet, das die Hardware sehr wohl verrät: wo Figuren sein können. Eine Kachel, auf der schon jemand stand, ist Boden — durch einen Baum läuft man nicht. Eine Kachel, die ständig zu sehen ist, auf der aber nie jemand steht, ist Wand, Baum, Klippe oder Wasser. Dieses eine Signal trennt eine Oberwelt von selbst in Boden und Kulisse.
+
+Damit das nicht in Menüs und Kämpfen losgeht — die sind voll von Kacheln, auf denen niemand steht — lernt das Modell nur, solange die Karte tatsächlich scrollt und Sprites da sind. Ein einmaliges Verschieben der Scroll-Register beim Bildaufbau reicht nicht; es zählt anhaltende Bewegung. Wissen verfällt langsam, damit eine Höhle neu gelernt wird statt alte Höhen mitzuschleppen, und Höhen ändern sich schrittweise, damit nichts springt.
+
+Der Effekt ist nicht in jedem Spiel gleich stark, deshalb liegen Ein/Aus, Kamerawinkel, Höhe, Aufrichtung und Schatten als Regler im Pausenmenü, und der flache Modus ist immer einen Tipp entfernt.
 
 **Speichern.** Zwei Mechanismen laufen parallel. Batteriegepufferter Cartridge-RAM wird alle zwei Sekunden mit dem Gespeicherten verglichen und nur bei Änderung geschrieben. Zusätzlich entsteht bei `pagehide` und `visibilitychange` ein automatischer Savestate — das ist der letzte Moment, den iOS zusichert, bevor es eine App im Hintergrund abräumt. Beim erneuten Öffnen wird dieser Stand wiederhergestellt.
 
@@ -62,7 +70,13 @@ npm run test:e2e     # Browser-Tests (Playwright)
 npm run gen:icons    # PWA-Icons neu erzeugen (stdlib-Python, kein Pillow nötig)
 ```
 
-Die Unit-Tests fahren den gebauten Core direkt in Node und prüfen ihn gegen blarggs Hardware-Test-ROMs (`cpu_instrs`, `instr_timing`) sowie einen Savestate-Round-Trip. Die Browser-Tests importieren eine ROM, spielen sie, beenden und laden neu — der Spielstand muss den Reload überleben.
+Die Unit-Tests fahren den gebauten Core direkt in Node:
+
+- **Core-Genauigkeit** gegen blarggs Hardware-Test-ROMs (`cpu_instrs`, `instr_timing`) plus einen Savestate-Round-Trip.
+- **Ebenen-Dekoder** gegen den Emulator selbst: Die aus VRAM und OAM zurückgewonnenen Ebenen werden wieder flach zusammengesetzt und müssen das Bild des Cores **pixelgenau** treffen. Dafür gibt es `tests/roms/ppu-probe.gb`, das gezielt signierte Kachel-Adressierung, versetztes Scrolling, ein Fenster und 8×16-Sprites mit Flips und Priorität benutzt.
+- **Höhenmodell** gegen `tests/roms/overworld-probe.gb`, eine scrollende Karte mit einer Figur, die einen Korridor aus Bodenkacheln entlangläuft. Im ROM steht nirgends, welche Kachel Kulisse ist — der Test verlangt, dass genau die Kulisse steht und der Boden flach bleibt.
+
+Die Browser-Tests importieren eine ROM, spielen sie, beenden und laden neu (der Spielstand muss den Reload überleben) und schalten 2.5D ein, prüfen dass sich das Bild ändert und dass das Modell die richtige Kachel anhebt.
 
 Läuft in einer Umgebung bereits ein Chromium, kann Playwright ihn statt eines eigenen Downloads verwenden:
 

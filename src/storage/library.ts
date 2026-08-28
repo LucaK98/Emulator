@@ -26,6 +26,8 @@ export interface GameEntry {
   lastPlayedAt: number | null;
   /** data: URL of the last auto-save-state frame, used as the library tile. */
   thumbnail: string | null;
+  /** Whether this game was last played with the 2.5D renderer. */
+  depth3d?: boolean;
 }
 
 export interface SaveRecord {

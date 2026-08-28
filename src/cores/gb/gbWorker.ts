@@ -23,6 +23,7 @@ import {
   type SharedViews,
   type ToWorker,
 } from '../../core/protocol';
+import { capturePpu } from './capturePpu';
 import type { SameBoyFactory, SameBoyModule } from './sameboyModule';
 
 /** Stereo frames to keep queued. ~85 ms: enough to ride out a stutter. */
@@ -104,6 +105,9 @@ function stepFrame(): number {
   if (shared) {
     writeSlot = (writeSlot + 1) % FRAME_SLOTS;
     shared.frames[writeSlot]!.set(pixels);
+    if (Atomics.load(shared.ctl, Ctl.CAPTURE_PPU) !== 0) {
+      capturePpu(core, shared.ppu[writeSlot]!);
+    }
     Atomics.store(shared.ctl, Ctl.FRAME_SLOT, writeSlot);
     Atomics.add(shared.ctl, Ctl.FRAME_SEQ, 1);
     Atomics.add(shared.ctl, Ctl.FRAME_COUNT, 1);

@@ -27,6 +27,19 @@ export interface SameBoyModule {
   _gbw_save_battery(ptr: number, size: number): number;
   _gbw_load_battery(ptr: number, size: number): void;
 
+  /** Pointers into the core's own memory; valid until the next _gbw_init. */
+  _gbw_vram(): number;
+  _gbw_vram_size(): number;
+  _gbw_oam(): number;
+  _gbw_oam_size(): number;
+  _gbw_io(): number;
+  _gbw_bg_palettes_rgb(): number;
+  _gbw_obj_palettes_rgb(): number;
+  _gbw_palette_entries(): number;
+  _gbw_scanline_log(): number;
+  _gbw_scanline_record_size(): number;
+  _gbw_is_cgb(): number;
+
   _gbw_state_size(): number;
   _gbw_save_state(ptr: number): void;
   _gbw_load_state(ptr: number, size: number): number;

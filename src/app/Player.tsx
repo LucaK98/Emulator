@@ -11,6 +11,12 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { CoreClient } from '../core/CoreClient';
 import { GLRenderer } from '../render/GLRenderer';
+import {
+  DEFAULT_DEPTH_SETTINGS,
+  Depth25DRenderer,
+  type DepthSettings,
+} from '../render/Depth25DRenderer';
+import { DepthControls } from './DepthControls';
 import { InputState, attachKeyboard } from '../input/InputState';
 import { TouchControls } from './TouchControls';
 import { frameToDataUrl } from './frameThumbnail';
@@ -29,6 +35,19 @@ import {
 const BATTERY_POLL_MS = 2000;
 /** How often an automatic save state is written while playing. */
 const AUTO_STATE_MS = 60_000;
+/** Camera settings are a personal preference, so they are shared across games. */
+const DEPTH_SETTINGS_KEY = 'depth-settings';
+
+function loadDepthSettings(): DepthSettings {
+  try {
+    const stored = localStorage.getItem(DEPTH_SETTINGS_KEY);
+    if (stored) return { ...DEFAULT_DEPTH_SETTINGS, ...JSON.parse(stored) };
+  }
+  catch {
+    // Corrupt or unavailable storage is not worth failing over.
+  }
+  return { ...DEFAULT_DEPTH_SETTINGS };
+}
 
 interface Props {
   game: GameEntry;
@@ -48,6 +67,14 @@ export function Player({ game, baseUrl, onExit }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [fps, setFps] = useState(0);
   const [restored, setRestored] = useState(false);
+
+  const [depthMode, setDepthMode] = useState(game.depth3d ?? false);
+  const [depthSettings, setDepthSettings] = useState<DepthSettings>(loadDepthSettings);
+  const depthRef = useRef<Depth25DRenderer | null>(null);
+  const [depthStats, setDepthStats] = useState({ raised: 0, learning: false });
+  // Depth rendering reads PPU state out of shared memory each frame; without
+  // cross-origin isolation there is no shared memory to read.
+  const depthAvailable = typeof SharedArrayBuffer !== 'undefined' && crossOriginIsolated;
 
   /* --- Save helpers (stable across renders) ----------------------------- */
 
@@ -127,18 +154,32 @@ export function Player({ game, baseUrl, onExit }: Props) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const renderer = GLRenderer.create(canvas);
+
+    const useDepth = depthMode && depthAvailable;
+    const renderer = useDepth ? Depth25DRenderer.create(canvas) : GLRenderer.create(canvas);
     if (!renderer) {
       setError('WebGL2 wird von diesem Browser nicht unterstützt');
       setPhase('error');
       return;
     }
+
+    depthRef.current = useDepth ? (renderer as Depth25DRenderer) : null;
+    if (depthRef.current) depthRef.current.settings = depthSettings;
     coreRef.current?.attachRenderer(renderer);
+
     return () => {
       coreRef.current?.attachRenderer(null);
+      depthRef.current = null;
       renderer.dispose();
     };
-  }, [phase === 'error']);
+    // depthSettings is applied through the ref below, not by rebuilding.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depthMode, depthAvailable, phase === 'error']);
+
+  // Slider moves take effect immediately without touching the GL objects.
+  useEffect(() => {
+    if (depthRef.current) depthRef.current.settings = depthSettings;
+  }, [depthSettings]);
 
   /* --- Input ------------------------------------------------------------ */
 
@@ -191,6 +232,30 @@ export function Player({ game, baseUrl, onExit }: Props) {
     };
   }, [flushBattery, writeAutoState]);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const model = depthRef.current?.heights;
+    setDepthStats({
+      raised: model?.raisedTileCount() ?? 0,
+      learning: model?.learning ?? false,
+    });
+  }, [menuOpen]);
+
+  const changeDepthMode = (enabled: boolean) => {
+    setDepthMode(enabled);
+    void updateGame(game.id, { depth3d: enabled });
+  };
+
+  const changeDepthSettings = (next: DepthSettings) => {
+    setDepthSettings(next);
+    try {
+      localStorage.setItem(DEPTH_SETTINGS_KEY, JSON.stringify(next));
+    }
+    catch {
+      // Not worth interrupting play over.
+    }
+  };
+
   /* --- Actions ---------------------------------------------------------- */
 
   const startPlaying = async () => {
@@ -226,7 +291,13 @@ export function Player({ game, baseUrl, onExit }: Props) {
   return (
     <main class="screen player">
       <div class="player-stage">
-        <canvas ref={canvasRef} class="player-canvas" width={160} height={144} />
+        <canvas
+          key={depthMode && depthAvailable ? 'depth' : 'flat'}
+          ref={canvasRef}
+          class="player-canvas"
+          width={160}
+          height={144}
+        />
 
         {phase === 'loading' && <Overlay><p class="muted">Lädt …</p></Overlay>}
 
@@ -264,6 +335,18 @@ export function Player({ game, baseUrl, onExit }: Props) {
             <button type="button" class="ghost-button" onClick={() => void exit()}>
               Speichern und beenden
             </button>
+
+            <DepthControls
+              enabled={depthMode}
+              available={depthAvailable}
+              unavailableReason="Braucht Cross-Origin-Isolation. Starte die App vom Home-Bildschirm."
+              settings={depthSettings}
+              raisedTiles={depthStats.raised}
+              learning={depthStats.learning}
+              onToggle={changeDepthMode}
+              onChange={changeDepthSettings}
+            />
+
             <p class="footnote">{fps.toFixed(0)} fps</p>
           </Overlay>
         )}

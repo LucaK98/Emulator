@@ -587,3 +587,47 @@ h2 {
     align-items: flex-start;
   }
 }
+
+/* --- 2.5D panel --------------------------------------------------------- */
+
+.depth-panel {
+  display: grid;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+
+.depth-panel h2 {
+  margin: 0;
+}
+
+.depth-panel .ghost-button,
+.depth-panel .primary-button {
+  margin-top: 0;
+  width: 100%;
+}
+
+.slider {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.slider-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.slider-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.slider input[type='range'] {
+  width: 100%;
+  /* The default control ignores the dark palette on iOS. */
+  accent-color: var(--accent);
+  height: 28px;
+}

@@ -24,12 +24,17 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${PORT}${BASE_PATH}`,
     trace: 'on-first-retry',
-    // Sandboxes that ship their own Chromium can point at it with
-    // PW_CHROMIUM_PATH instead of downloading a second copy. CI leaves this
-    // unset and uses `npx playwright install chromium`.
-    ...(process.env.PW_CHROMIUM_PATH
-      ? { launchOptions: { executablePath: process.env.PW_CHROMIUM_PATH } }
-      : {}),
+    launchOptions: {
+      // Headless runners have no GPU, and the 2.5D renderer needs a working
+      // WebGL2 context. SwiftShader provides one in software.
+      args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+      // Sandboxes that ship their own Chromium can point at it with
+      // PW_CHROMIUM_PATH instead of downloading a second copy. CI leaves this
+      // unset and uses `npx playwright install chromium`.
+      ...(process.env.PW_CHROMIUM_PATH
+        ? { executablePath: process.env.PW_CHROMIUM_PATH }
+        : {}),
+    },
   },
 
   projects: [

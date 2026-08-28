@@ -12,6 +12,7 @@
  */
 
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from '../core/protocol';
+import type { SceneRenderer } from './SceneRenderer';
 
 const VERTEX_SHADER = `#version 300 es
 in vec2 a_position;
@@ -31,7 +32,9 @@ void main() {
   outColor = texture(u_frame, v_uv);
 }`;
 
-export class GLRenderer {
+export class GLRenderer implements SceneRenderer {
+  readonly needsPpuState = false;
+
   private gl: WebGL2RenderingContext;
   private texture: WebGLTexture;
   private program: WebGLProgram;
@@ -78,7 +81,7 @@ export class GLRenderer {
   }
 
   /** Uploads one frame of RGBA8888 pixels and draws it. */
-  draw(pixels: Uint32Array): void {
+  render(pixels: Uint32Array): void {
     if (this.disposed) return;
     const gl = this.gl;
 
@@ -94,6 +97,10 @@ export class GLRenderer {
       gl.UNSIGNED_BYTE,
       new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength),
     );
+
+    // The depth renderer may have shared this context and left state behind.
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
 
     const { x, y, width, height } = fitViewport(this.canvas.width, this.canvas.height);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);

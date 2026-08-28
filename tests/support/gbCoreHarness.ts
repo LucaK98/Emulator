@@ -10,6 +10,9 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { capturePpu } from '../../src/cores/gb/capturePpu';
+import { PPU_BLOCK_BYTES } from '../../src/core/protocol';
+import { PpuDecoder, type GbScene } from '../../src/render/ppu/decode';
 import type { SameBoyFactory, SameBoyModule } from '../../src/cores/gb/sameboyModule';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -26,6 +29,8 @@ export interface LoadedCore {
   framebuffer(): Uint32Array;
   /** Stable hash of the current screen contents. */
   screenHash(): string;
+  /** Decodes the current PPU state back into separate layers. */
+  scene(): GbScene;
 }
 
 export async function loadCore(romPath: string, model = GB_MODEL_DMG_B): Promise<LoadedCore> {
@@ -50,8 +55,15 @@ export async function loadCore(romPath: string, model = GB_MODEL_DMG_B): Promise
     return module.HEAPU32.subarray(pixelPtr >>> 2, (pixelPtr >>> 2) + SCREEN_WIDTH * SCREEN_HEIGHT);
   };
 
+  const ppuBlock = new Uint8Array(PPU_BLOCK_BYTES);
+  const decoder = new PpuDecoder();
+
   return {
     module,
+    scene() {
+      capturePpu(module, ppuBlock);
+      return decoder.decode(ppuBlock);
+    },
     runFrames(count: number) {
       let audio = 0;
       for (let i = 0; i < count; i++) audio += module._gbw_run_frame();
