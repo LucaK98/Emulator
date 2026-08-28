@@ -62,6 +62,10 @@ class GbCore implements EmulatorCore {
     this.module._gbw_set_sample_rate(rate);
   }
 
+  frameSize(): { width: number; height: number } {
+    return { width: GB_SCREEN_WIDTH, height: GB_SCREEN_HEIGHT };
+  }
+
   frameRate(): number {
     return this.module._gbw_frame_rate();
   }

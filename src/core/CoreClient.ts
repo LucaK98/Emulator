@@ -36,6 +36,37 @@ export interface LoadOptions {
   battery: ArrayBuffer | null;
 }
 
+/** The WASM module that backs each system. */
+const CORE_FILES: Record<SystemSpec['id'], string> = {
+  gb: 'sameboy',
+  gba: 'mgba',
+  nds: 'melonds',
+};
+
+/**
+ * Worker URLs are written out one by one so the bundler can find and emit each
+ * of them; a computed URL would silently produce a missing chunk.
+ */
+function createWorker(system: SystemSpec['id']): Worker {
+  switch (system) {
+    case 'gba':
+      return new Worker(new URL('../cores/gba/worker.ts', import.meta.url), {
+        type: 'module',
+        name: 'gba-core',
+      });
+    case 'nds':
+      return new Worker(new URL('../cores/nds/worker.ts', import.meta.url), {
+        type: 'module',
+        name: 'nds-core',
+      });
+    default:
+      return new Worker(new URL('../cores/gb/worker.ts', import.meta.url), {
+        type: 'module',
+        name: 'gb-core',
+      });
+  }
+}
+
 export class CoreClient {
   private worker: Worker;
   private shared: SharedArrayBuffer | null = null;
@@ -57,20 +88,14 @@ export class CoreClient {
   /** True when the zero-copy path is in use. */
   usingShared = false;
   frameRate = 59.727;
+  /** Size of the last frame drawn; a DS changes it when screens are moved. */
+  frameWidth: number;
+  frameHeight: number;
 
   constructor(private readonly options: CoreClientOptions) {
-    // Both workers are declared statically so the bundler can find and emit
-    // them; a computed URL would silently produce a missing chunk.
-    this.worker =
-      options.system.id === 'gba'
-        ? new Worker(new URL('../cores/gba/worker.ts', import.meta.url), {
-            type: 'module',
-            name: 'gba-core',
-          })
-        : new Worker(new URL('../cores/gb/worker.ts', import.meta.url), {
-            type: 'module',
-            name: 'gb-core',
-          });
+    this.frameWidth = options.system.width;
+    this.frameHeight = options.system.height;
+    this.worker = createWorker(options.system.id);
     this.worker.onmessage = (event: MessageEvent<FromWorker>) => this.onMessage(event.data);
 
     this.readyPromise = new Promise<boolean>((resolve) => {
@@ -94,7 +119,7 @@ export class CoreClient {
     this.send({
       type: 'init',
       shared: this.shared,
-      coreUrl: `${this.options.baseUrl}cores/${spec.id === 'gba' ? 'mgba' : 'sameboy'}.js`,
+      coreUrl: `${this.options.baseUrl}cores/${CORE_FILES[spec.id]}.js`,
       sampleRate: this.audio.sampleRate,
       system: spec.id,
     });
@@ -157,6 +182,20 @@ export class CoreClient {
 
   reset(): void {
     this.send({ type: 'reset' });
+  }
+
+  /** Touch-screen position in the console's own coordinates. */
+  touch(x: number, y: number): void {
+    this.send({ type: 'touch', x, y });
+  }
+
+  releaseTouch(): void {
+    this.send({ type: 'releaseTouch' });
+  }
+
+  /** Rearranges the screens of a multi-screen console. */
+  setLayout(layout: number): void {
+    this.send({ type: 'setLayout', layout });
   }
 
   setSpeed(percent: number): void {
@@ -264,9 +303,13 @@ export class CoreClient {
       this.rafHandle = requestAnimationFrame(tick);
 
       const frame = this.nextFrame();
+      if (frame) {
+        this.frameWidth = frame.width;
+        this.frameHeight = frame.height;
+      }
       if (frame && this.renderer) {
         this.renderer.resize(window.devicePixelRatio || 1);
-        this.renderer.render(frame.pixels, frame.ppu);
+        this.renderer.render(frame.pixels, frame.ppu, frame.width, frame.height);
         framesDrawn++;
       }
 
@@ -282,7 +325,12 @@ export class CoreClient {
   }
 
   /** Returns the newest completed frame, or null if nothing new arrived. */
-  private nextFrame(): { pixels: Uint32Array; ppu: Uint8Array | null } | null {
+  private nextFrame(): {
+    pixels: Uint32Array;
+    ppu: Uint8Array | null;
+    width: number;
+    height: number;
+  } | null {
     if (this.views) {
       const seq = Atomics.load(this.views.ctl, Ctl.FRAME_SEQ);
       if (seq === this.lastSeq) return null;
@@ -291,14 +339,25 @@ export class CoreClient {
       const pixels = this.views.frames[slot];
       if (!pixels || pixels.length !== sharedLayout(this.options.system).framePixels) return null;
       const ppu = this.renderer?.needsPpuState ? (this.views.ppu[slot] ?? null) : null;
-      return { pixels, ppu };
+      // A DS changes shape when its screens are rearranged, so the size comes
+      // from the worker rather than from the system's default.
+      const width = Atomics.load(this.views.ctl, Ctl.FRAME_WIDTH) || this.options.system.width;
+      const height = Atomics.load(this.views.ctl, Ctl.FRAME_HEIGHT) || this.options.system.height;
+      return { pixels, ppu, width, height };
     }
 
     const pixels = this.fallbackFrame;
     this.fallbackFrame = null;
     // Without shared memory there is no PPU capture, so only the flat renderer
     // works; the player keeps depth mode disabled in that case.
-    return pixels ? { pixels, ppu: null } : null;
+    return pixels
+      ? {
+          pixels,
+          ppu: null,
+          width: this.options.system.width,
+          height: this.options.system.height,
+        }
+      : null;
   }
 
   private stopRenderLoop(): void {

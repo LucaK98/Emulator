@@ -10,9 +10,11 @@ export interface SceneRenderer {
   resize(devicePixelRatio: number): void;
   /**
    * Draws one frame. `ppuBlock` carries the captured PPU state when depth
-   * rendering is active, and is null otherwise.
+   * rendering is active, and is null otherwise. The size is passed per frame
+   * because a two-screen console changes shape when its screens are
+   * rearranged.
    */
-  render(pixels: Uint32Array, ppuBlock: Uint8Array | null): void;
+  render(pixels: Uint32Array, ppuBlock: Uint8Array | null, width: number, height: number): void;
   dispose(): void;
   /** True when this renderer needs PPU state captured for it. */
   readonly needsPpuState: boolean;

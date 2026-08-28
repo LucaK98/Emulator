@@ -6,7 +6,7 @@
  * Boy takes a spec instead.
  */
 
-export type SystemId = 'gb' | 'gba';
+export type SystemId = 'gb' | 'gba' | 'nds';
 
 export type ButtonName =
   | 'Right'
@@ -18,7 +18,9 @@ export type ButtonName =
   | 'Select'
   | 'Start'
   | 'L'
-  | 'R';
+  | 'R'
+  | 'X'
+  | 'Y';
 
 /**
  * Bit positions in the shared button mask. The first eight match SameBoy's
@@ -37,6 +39,8 @@ export const Button: Record<ButtonName, number> = {
   Start: 7,
   L: 8,
   R: 9,
+  X: 10,
+  Y: 11,
 };
 
 export function bit(name: ButtonName): number {
@@ -52,6 +56,14 @@ export interface SystemSpec {
   supportsDepth: boolean;
   /** Buttons this hardware actually has. */
   buttons: ButtonName[];
+  /** True for hardware with a touch screen. */
+  hasTouchScreen: boolean;
+  /**
+   * Alternative screen arrangements, for consoles with more than one screen.
+   * Every arrangement holds the same number of pixels, so one buffer serves
+   * them all and the layout can change while playing.
+   */
+  layouts?: { id: number; label: string; width: number; height: number }[];
   /** File extensions accepted for this system, lower case with the dot. */
   extensions: string[];
 }
@@ -75,6 +87,7 @@ export const SYSTEMS: Record<SystemId, SystemSpec> = {
     height: 144,
     supportsDepth: true,
     buttons: HANDHELD_BUTTONS,
+    hasTouchScreen: false,
     extensions: ['.gb', '.gbc'],
   },
   gba: {
@@ -86,9 +99,29 @@ export const SYSTEMS: Record<SystemId, SystemSpec> = {
     // layers and affine modes need their own treatment, which is not built.
     supportsDepth: false,
     buttons: [...HANDHELD_BUTTONS, 'L', 'R'],
+    hasTouchScreen: false,
     extensions: ['.gba'],
   },
+  nds: {
+    id: 'nds',
+    label: 'Nintendo DS',
+    // Two 256x192 screens. The default arrangement is stacked, which is also
+    // the buffer's shape; side by side holds exactly the same pixels.
+    width: 256,
+    height: 384,
+    supportsDepth: false,
+    buttons: [...HANDHELD_BUTTONS, 'L', 'R', 'X', 'Y'],
+    hasTouchScreen: true,
+    layouts: [
+      { id: 0, label: 'Übereinander', width: 256, height: 384 },
+      { id: 1, label: 'Nebeneinander', width: 512, height: 192 },
+    ],
+    extensions: ['.nds'],
+  },
 };
+
+/** Screens of a two-screen console, as fractions of the composed frame. */
+export const NDS_SCREEN = { width: 256, height: 192 } as const;
 
 /** Picks a system from a file name, or null when the extension is unknown. */
 export function systemForFileName(name: string): SystemSpec | null {

@@ -66,6 +66,10 @@ class GbaCore implements EmulatorCore {
     this.module._gbaw_set_sample_rate(rate);
   }
 
+  frameSize(): { width: number; height: number } {
+    return { width: SYSTEMS.gba.width, height: SYSTEMS.gba.height };
+  }
+
   frameRate(): number {
     return this.module._gbaw_frame_rate();
   }

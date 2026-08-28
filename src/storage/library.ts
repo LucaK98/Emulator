@@ -10,7 +10,9 @@
 
 import { isLikelyGameBoyRom, parseGbRom, romId } from '../core/gbRom';
 import { isLikelyGbaRom, parseGbaRom } from '../core/gbaRom';
+import { isLikelyNdsRom, parseNdsRom } from '../core/ndsRom';
 import { systemForFileName, type SystemId } from '../core/systems';
+import { deflate, inflate } from 'fflate';
 import { Store, get, getAll, getAllKeys, put, remove } from './db';
 
 export interface GameEntry {
@@ -40,6 +42,13 @@ export interface StateRecord {
   data: ArrayBuffer;
   thumbnail: string | null;
   createdAt: number;
+  /**
+   * Whether `data` is deflated. A Nintendo DS state is around 19 MB raw and
+   * mostly zeroes; storing nine of those per game would fill the quota for no
+   * reason. Absent on records written before compression existed, which is why
+   * it is optional rather than assumed.
+   */
+  compressed?: boolean;
 }
 
 /** Slot name for the state written automatically when the app is backgrounded. */
@@ -82,7 +91,8 @@ export async function importRom(
   const existing = await getGame(id);
   if (existing) return { entry: existing, alreadyPresent: true, warning: null };
 
-  const draft = spec.id === 'gba' ? describeGba(bytes, fallbackTitle) : describeGb(bytes, fallbackTitle);
+  const describe = { gb: describeGb, gba: describeGba, nds: describeNds }[spec.id];
+  const draft = describe(bytes, fallbackTitle);
 
   const entry: GameEntry = {
     id,
@@ -138,6 +148,24 @@ function describeGba(bytes: Uint8Array, fallbackTitle: string): RomDraft {
   };
 }
 
+function describeNds(bytes: Uint8Array, fallbackTitle: string): RomDraft {
+  if (!isLikelyNdsRom(bytes)) {
+    throw new Error('Keine Nintendo-DS-ROM (Kopfdaten unplausibel)');
+  }
+  const info = parseNdsRom(bytes, fallbackTitle);
+  return {
+    entry: {
+      title: info.title,
+      model: 0,
+      // The save type is detected from the cartridge once it is loaded; the
+      // player polls and simply gets nothing back until then.
+      hasBattery: true,
+      colorCapable: true,
+    },
+    warning: null,
+  };
+}
+
 export async function updateGame(id: string, patch: Partial<GameEntry>): Promise<void> {
   const entry = await getGame(id);
   if (!entry) return;
@@ -181,8 +209,13 @@ export function stateKey(id: string, slot: string): string {
   return `${id}:${slot}`;
 }
 
-export function getState(id: string, slot: string): Promise<StateRecord | undefined> {
-  return get<StateRecord>(Store.States, stateKey(id, slot));
+/** Reads a state back, expanding it if it was stored compressed. */
+export async function getState(id: string, slot: string): Promise<StateRecord | undefined> {
+  const record = await get<StateRecord>(Store.States, stateKey(id, slot));
+  if (!record || !record.compressed) return record;
+
+  const expanded = await inflateAsync(new Uint8Array(record.data));
+  return { ...record, data: expanded.buffer as ArrayBuffer, compressed: false };
 }
 
 export async function putState(
@@ -191,8 +224,28 @@ export async function putState(
   data: ArrayBuffer,
   thumbnail: string | null,
 ): Promise<void> {
-  const record: StateRecord = { data, thumbnail, createdAt: Date.now() };
+  // Level 1: emulator states are long runs of zeroes, which even the fastest
+  // setting collapses, and a save should not make the game stutter.
+  const compressed = await deflateAsync(new Uint8Array(data));
+  const record: StateRecord = {
+    data: compressed.buffer as ArrayBuffer,
+    thumbnail,
+    createdAt: Date.now(),
+    compressed: true,
+  };
   await put(Store.States, record, stateKey(id, slot));
+}
+
+function deflateAsync(bytes: Uint8Array): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    deflate(bytes, { level: 1 }, (error, data) => (error ? reject(error) : resolve(data)));
+  });
+}
+
+function inflateAsync(bytes: Uint8Array): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    inflate(bytes, (error, data) => (error ? reject(error) : resolve(data)));
+  });
 }
 
 export function deleteState(id: string, slot: string): Promise<undefined> {

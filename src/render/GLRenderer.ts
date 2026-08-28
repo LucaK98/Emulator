@@ -17,9 +17,10 @@ import type { SceneRenderer } from './SceneRenderer';
 const VERTEX_SHADER = `#version 300 es
 in vec2 a_position;
 out vec2 v_uv;
+uniform vec2 u_uvScale;
 void main() {
   // Fullscreen triangle-pair in clip space; flip V so row 0 is at the top.
-  v_uv = vec2(a_position.x * 0.5 + 0.5, 0.5 - a_position.y * 0.5);
+  v_uv = vec2(a_position.x * 0.5 + 0.5, 0.5 - a_position.y * 0.5) * u_uvScale;
   gl_Position = vec4(a_position, 0.0, 1.0);
 }`;
 
@@ -40,6 +41,8 @@ export class GLRenderer implements SceneRenderer {
   private program: WebGLProgram;
   private vao: WebGLVertexArrayObject;
   private disposed = false;
+  private frameWidth: number;
+  private frameHeight: number;
 
   private constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -49,6 +52,8 @@ export class GLRenderer implements SceneRenderer {
     this.gl = gl;
     this.program = createProgram(gl, VERTEX_SHADER, FRAGMENT_SHADER);
     this.texture = createScreenTexture(gl, spec.width, spec.height);
+    this.frameWidth = spec.width;
+    this.frameHeight = spec.height;
     this.vao = createQuad(gl, this.program);
 
     gl.useProgram(this.program);
@@ -82,9 +87,17 @@ export class GLRenderer implements SceneRenderer {
   }
 
   /** Uploads one frame of RGBA8888 pixels and draws it. */
-  render(pixels: Uint32Array): void {
+  render(pixels: Uint32Array, _ppuBlock: Uint8Array | null, width: number, height: number): void {
     if (this.disposed) return;
     const gl = this.gl;
+
+    // The texture is allocated once at the system's largest size; a frame that
+    // is a different shape (a DS with its screens rearranged) reuses the same
+    // storage and only changes which part of it is written and drawn.
+    if (width !== this.frameWidth || height !== this.frameHeight) {
+      this.frameWidth = width;
+      this.frameHeight = height;
+    }
 
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.texSubImage2D(
@@ -92,8 +105,8 @@ export class GLRenderer implements SceneRenderer {
       0,
       0,
       0,
-      this.spec.width,
-      this.spec.height,
+      this.frameWidth,
+      this.frameHeight,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
       new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength),
@@ -103,17 +116,22 @@ export class GLRenderer implements SceneRenderer {
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
 
-    const { x, y, width, height } = fitViewport(
+    const view = fitViewport(
       this.canvas.width,
       this.canvas.height,
-      this.spec.width,
-      this.spec.height,
+      this.frameWidth,
+      this.frameHeight,
     );
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.viewport(x, y, width, height);
+    gl.viewport(view.x, view.y, view.width, view.height);
 
     gl.useProgram(this.program);
+    gl.uniform2f(
+      gl.getUniformLocation(this.program, 'u_uvScale'),
+      this.frameWidth / this.spec.width,
+      this.frameHeight / this.spec.height,
+    );
     gl.bindVertexArray(this.vao);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);

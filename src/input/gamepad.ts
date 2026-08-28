@@ -15,6 +15,8 @@ import { bit, type InputState } from './InputState';
 const DEFAULT_MAPPING: Record<ButtonName, number> = {
   B: 0, // bottom face button
   A: 1, // right face button
+  Y: 2, // left face button  — the DS X/Y sit the same way round
+  X: 3, // top face button
   L: 4, // left shoulder
   R: 5, // right shoulder
   Select: 8,

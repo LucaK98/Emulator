@@ -27,6 +27,7 @@ vendor/**/build/
 !tests/roms/**/*.gb
 !tests/roms/**/*.gbc
 !tests/roms/**/*.gba
+!tests/roms/**/*.nds
 
 .DS_Store
 .env

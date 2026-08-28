@@ -47,6 +47,8 @@ const MAPPABLE: ButtonName[] = [
   'Select',
   'L',
   'R',
+  'X',
+  'Y',
 ];
 
 export function Settings({ isolation, storage, onStorageChange, onClose }: Props) {

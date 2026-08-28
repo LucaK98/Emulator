@@ -41,6 +41,18 @@ export interface EmulatorCore {
 
   /** Present only on cores that can feed the 2.5D renderer. */
   capturePpu?(target: Uint8Array): void;
+
+  /** Present only on hardware with a touch screen. */
+  touch?(x: number, y: number): void;
+  releaseTouch?(): void;
+
+  /**
+   * Present only on multi-screen hardware. Changing the arrangement changes
+   * the frame's shape, which is why the runtime republishes the dimensions.
+   */
+  setLayout?(layout: number): void;
+  /** Current picture size; may change when the layout does. */
+  frameSize(): { width: number; height: number };
 }
 
 /** Copies bytes into the WASM heap, runs `use` with the pointer, then frees. */

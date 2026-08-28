@@ -116,6 +116,10 @@ export function startWorkerRuntime(createCore: CoreFactory): void {
       Atomics.add(shared.ctl, Ctl.FRAME_SEQ, 1);
       Atomics.add(shared.ctl, Ctl.FRAME_COUNT, 1);
 
+      const size = core.frameSize();
+      Atomics.store(shared.ctl, Ctl.FRAME_WIDTH, size.width);
+      Atomics.store(shared.ctl, Ctl.FRAME_HEIGHT, size.height);
+
       if (audioFrames > 0) pushAudio(shared, core.audioSamples(audioFrames), audioFrames);
     }
     else {
@@ -271,6 +275,18 @@ export function startWorkerRuntime(createCore: CoreFactory): void {
 
         case 'setSpeed':
           speedPercent = Math.max(10, Math.min(800, message.percent));
+          break;
+
+        case 'touch':
+          core?.touch?.(message.x, message.y);
+          break;
+
+        case 'releaseTouch':
+          core?.releaseTouch?.();
+          break;
+
+        case 'setLayout':
+          core?.setLayout?.(message.layout);
           break;
 
         case 'requestBattery':

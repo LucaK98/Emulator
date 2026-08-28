@@ -101,6 +101,13 @@ export const Ctl = {
   BATTERY_DIRTY: 8,
   /** Non-zero while the main thread wants per-frame PPU state captured. */
   CAPTURE_PPU: 9,
+  /**
+   * Size of the picture in the current frame slot. Fixed for most systems, but
+   * a DS changes shape when its two screens are rearranged, so the renderer
+   * reads it per frame rather than assuming the system's default.
+   */
+  FRAME_WIDTH: 10,
+  FRAME_HEIGHT: 11,
 } as const;
 
 export const CTL_SLOTS = 16;
@@ -207,6 +214,9 @@ export type ToWorker =
   | { type: 'stop' }
   | { type: 'setKeys'; mask: number }
   | { type: 'setSpeed'; percent: number }
+  | { type: 'touch'; x: number; y: number }
+  | { type: 'releaseTouch' }
+  | { type: 'setLayout'; layout: number }
   | { type: 'requestBattery'; token: number }
   | { type: 'requestState'; token: number }
   | { type: 'loadState'; data: ArrayBuffer; token: number }

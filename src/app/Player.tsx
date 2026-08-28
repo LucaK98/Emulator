@@ -23,6 +23,7 @@ import { SaveSlots } from './SaveSlots';
 import { GamepadReader } from '../input/gamepad';
 import { frameToDataUrl } from './frameThumbnail';
 import { SYSTEMS } from '../core/systems';
+import { mapToTouchScreen } from '../input/touchScreen';
 import {
   AUTO_SLOT,
   getRom,
@@ -74,6 +75,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
   const [fps, setFps] = useState(0);
   const [restored, setRestored] = useState(false);
 
+  const [layout, setLayout] = useState(0);
   const [depthMode, setDepthMode] = useState(game.depth3d ?? false);
   const [depthSettings, setDepthSettings] = useState<DepthSettings>(loadDepthSettings);
   const depthRef = useRef<Depth25DRenderer | null>(null);
@@ -236,6 +238,56 @@ export function Player({ game, baseUrl, onExit }: Props) {
     };
   }, []);
 
+  /*
+   * Touch screen. The canvas shows the whole composed picture, so a tap is
+   * translated through the letterbox into the lower screen; taps that land
+   * anywhere else are ignored rather than guessed at.
+   */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !spec.hasTouchScreen) return;
+
+    const send = (event: PointerEvent) => {
+      const core = coreRef.current;
+      if (!core) return;
+      const rect = canvas.getBoundingClientRect();
+      const point = mapToTouchScreen(
+        { x: event.clientX - rect.left, y: event.clientY - rect.top },
+        { width: rect.width, height: rect.height },
+        { width: core.frameWidth, height: core.frameHeight },
+        layout,
+      );
+      if (point) core.touch(point.x, point.y);
+    };
+
+    const onDown = (event: PointerEvent) => {
+      canvas.setPointerCapture(event.pointerId);
+      send(event);
+    };
+    const onMove = (event: PointerEvent) => {
+      if (event.buttons === 0 && event.pointerType === 'mouse') return;
+      send(event);
+    };
+    const onUp = () => coreRef.current?.releaseTouch();
+
+    canvas.addEventListener('pointerdown', onDown);
+    canvas.addEventListener('pointermove', onMove);
+    canvas.addEventListener('pointerup', onUp);
+    canvas.addEventListener('pointercancel', onUp);
+
+    return () => {
+      canvas.removeEventListener('pointerdown', onDown);
+      canvas.removeEventListener('pointermove', onMove);
+      canvas.removeEventListener('pointerup', onUp);
+      canvas.removeEventListener('pointercancel', onUp);
+    };
+  }, [spec, layout, phase === 'error']);
+
+  const changeLayout = (next: number) => {
+    setLayout(next);
+    coreRef.current?.setLayout(next);
+  };
+
   /* --- Periodic saving -------------------------------------------------- */
 
   useEffect(() => {
@@ -378,6 +430,25 @@ export function Player({ game, baseUrl, onExit }: Props) {
             <button type="button" class="ghost-button" onClick={() => void exit()}>
               Speichern und beenden
             </button>
+
+            {spec.layouts && spec.layouts.length > 1 && (
+              <section class="slots-panel">
+                <h2>Bildschirme</h2>
+                <div class="segmented" role="group">
+                  {spec.layouts.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      class={layout === option.id ? 'segment is-active' : 'segment'}
+                      aria-pressed={layout === option.id}
+                      onClick={() => changeLayout(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
 
             <SaveSlots gameId={game.id} onSave={saveToSlot} onLoad={loadFromSlot} />
 

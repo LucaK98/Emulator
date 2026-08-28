@@ -55,6 +55,8 @@ export const KEYBOARD_MAP: Record<string, ButtonName> = {
   ShiftLeft: 'Select',
   KeyA: 'L',
   KeyS: 'R',
+  KeyC: 'X',
+  KeyV: 'Y',
 };
 
 /** Attaches keyboard handling; returns a disposer. */

@@ -44,6 +44,7 @@ const BUTTON_SLOP = 10;
 
 export function TouchControls({ input, buttons, onMenu, disabled = false }: Props) {
   const hasShoulders = buttons.includes('L');
+  const hasDiamond = buttons.includes('X');
   const surfaceRef = useRef<HTMLDivElement>(null);
   const dpadRef = useRef<HTMLDivElement>(null);
   const aRef = useRef<HTMLButtonElement>(null);
@@ -52,6 +53,8 @@ export function TouchControls({ input, buttons, onMenu, disabled = false }: Prop
   const selectRef = useRef<HTMLButtonElement>(null);
   const shoulderLeftRef = useRef<HTMLButtonElement>(null);
   const shoulderRightRef = useRef<HTMLButtonElement>(null);
+  const xRef = useRef<HTMLButtonElement>(null);
+  const yRef = useRef<HTMLButtonElement>(null);
 
   const [pressed, setPressed] = useState(0);
 
@@ -77,6 +80,8 @@ export function TouchControls({ input, buttons, onMenu, disabled = false }: Prop
         select: rectOf(selectRef.current),
         shoulderLeft: rectOf(shoulderLeftRef.current),
         shoulderRight: rectOf(shoulderRightRef.current),
+        x: circleOf(xRef.current, BUTTON_SLOP),
+        y: circleOf(yRef.current, BUTTON_SLOP),
       };
     }
 
@@ -87,6 +92,7 @@ export function TouchControls({ input, buttons, onMenu, disabled = false }: Prop
     function maskFor(x: number, y: number): number {
       let mask = 0;
       const { dpad, a, b, start, select, shoulderLeft, shoulderRight } = geometry;
+      const { x: xButton, y: yButton } = geometry;
 
       if (dpad) {
         const dx = x - dpad.cx;
@@ -113,6 +119,8 @@ export function TouchControls({ input, buttons, onMenu, disabled = false }: Prop
 
       if (a && inCircle(a, x, y)) mask |= bit('A');
       if (b && inCircle(b, x, y)) mask |= bit('B');
+      if (xButton && inCircle(xButton, x, y)) mask |= bit('X');
+      if (yButton && inCircle(yButton, x, y)) mask |= bit('Y');
       if (start && inRect(start, x, y)) mask |= bit('Start');
       if (select && inRect(select, x, y)) mask |= bit('Select');
       if (shoulderLeft && inRect(shoulderLeft, x, y)) mask |= bit('L');
@@ -164,7 +172,7 @@ export function TouchControls({ input, buttons, onMenu, disabled = false }: Prop
       window.removeEventListener('orientationchange', remeasure);
       input.set('touch', 0);
     };
-  }, [input, disabled, hasShoulders]);
+  }, [input, disabled, hasShoulders, hasDiamond]);
 
   const on = (name: ButtonName) => ((pressed & bit(name)) !== 0 ? ' is-pressed' : '');
 
@@ -190,14 +198,32 @@ export function TouchControls({ input, buttons, onMenu, disabled = false }: Prop
         <span class={`dpad-cap dpad-right${on('Right')}`} />
       </div>
 
-      <div class="face-buttons">
-        <button type="button" class={`face-button${on('B')}`} ref={bRef} aria-label="B">
-          B
-        </button>
-        <button type="button" class={`face-button${on('A')}`} ref={aRef} aria-label="A">
-          A
-        </button>
-      </div>
+      {hasDiamond ? (
+        // Four face buttons sit in a diamond, as on the hardware.
+        <div class="face-diamond">
+          <button type="button" class={`face-button${on('X')}`} ref={xRef} aria-label="X">
+            X
+          </button>
+          <button type="button" class={`face-button${on('Y')}`} ref={yRef} aria-label="Y">
+            Y
+          </button>
+          <button type="button" class={`face-button${on('A')}`} ref={aRef} aria-label="A">
+            A
+          </button>
+          <button type="button" class={`face-button${on('B')}`} ref={bRef} aria-label="B">
+            B
+          </button>
+        </div>
+      ) : (
+        <div class="face-buttons">
+          <button type="button" class={`face-button${on('B')}`} ref={bRef} aria-label="B">
+            B
+          </button>
+          <button type="button" class={`face-button${on('A')}`} ref={aRef} aria-label="A">
+            A
+          </button>
+        </div>
+      )}
 
       <div class="system-buttons">
         <button type="button" class={`pill${on('Select')}`} ref={selectRef} aria-label="Select">
