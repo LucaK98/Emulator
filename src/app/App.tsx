@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Onboarding } from './Onboarding';
+import { Library } from './Library';
+import { Player } from './Player';
 import { storageIsAtRiskOfEviction } from '../platform/device';
-import {
-  ensureIsolation,
-  hasSharedArrayBuffer,
-  registerServiceWorker,
-  type IsolationState,
-} from '../platform/isolation';
-import { formatBytes, requestPersistentStorage, type StorageStatus } from '../storage/persist';
+import { ensureIsolation, registerServiceWorker, type IsolationState } from '../platform/isolation';
+import { requestPersistentStorage, type StorageStatus } from '../storage/persist';
+import type { GameEntry } from '../storage/library';
 
 const BYPASS_KEY = 'install-gate-bypassed';
 
@@ -22,6 +20,7 @@ type Boot =
 export function App() {
   const [boot, setBoot] = useState<Boot>({ phase: 'starting' });
   const [bypassed, setBypassed] = useState(() => sessionStorage.getItem(BYPASS_KEY) === '1');
+  const [playing, setPlaying] = useState<GameEntry | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,75 +65,15 @@ export function App() {
     );
   }
 
-  return <Library isolation={boot.isolation} storage={boot.storage} />;
-}
+  if (playing) {
+    return (
+      <Player
+        game={playing}
+        baseUrl={import.meta.env.BASE_URL}
+        onExit={() => setPlaying(null)}
+      />
+    );
+  }
 
-function Library({ isolation, storage }: { isolation: SettledIsolation; storage: StorageStatus }) {
-  return (
-    <main class="screen library">
-      <header class="app-header">
-        <h1>Emulator</h1>
-      </header>
-
-      <section class="empty-state">
-        <p class="lede">Noch keine Spiele in der Bibliothek.</p>
-        <p class="muted">
-          Der ROM-Import kommt mit dem Game-Boy-Core. Bis dahin prüft dieser Bildschirm, ob dein
-          Gerät alles mitbringt, was der Emulator braucht.
-        </p>
-      </section>
-
-      <section class="diagnostics">
-        <h2>Systemstatus</h2>
-        <dl>
-          <Row
-            label="Dauerhafter Speicher"
-            ok={storage.persisted}
-            value={
-              storage.unsupported
-                ? 'Nicht unterstützt'
-                : storage.persisted
-                  ? 'Aktiv'
-                  : 'Nur Best-Effort'
-            }
-          />
-          <Row
-            label="Speicherbelegung"
-            neutral
-            value={`${formatBytes(storage.usage)} von ${formatBytes(storage.quota)}`}
-          />
-          <Row
-            label="Cross-Origin-Isolation"
-            ok={isolation.status === 'isolated'}
-            value={isolation.status === 'isolated' ? 'Aktiv' : isolation.reason}
-          />
-          <Row
-            label="SharedArrayBuffer"
-            ok={hasSharedArrayBuffer()}
-            value={hasSharedArrayBuffer() ? 'Verfügbar' : 'Fallback ohne SAB'}
-          />
-        </dl>
-      </section>
-    </main>
-  );
-}
-
-function Row({
-  label,
-  value,
-  ok,
-  neutral = false,
-}: {
-  label: string;
-  value: string;
-  ok?: boolean;
-  neutral?: boolean;
-}) {
-  const state = neutral ? 'neutral' : ok ? 'ok' : 'warn';
-  return (
-    <div class="row">
-      <dt>{label}</dt>
-      <dd class={`status status-${state}`}>{value}</dd>
-    </div>
-  );
+  return <Library isolation={boot.isolation} storage={boot.storage} onPlay={setPlaying} />;
 }

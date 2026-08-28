@@ -4,17 +4,23 @@ const IPHONE_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 ' +
   '(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 
+/** The status panel is collapsed by default; open it before asserting on it. */
+async function openDiagnostics(page: import('@playwright/test').Page): Promise<void> {
+  await page.getByRole('button', { name: 'Systemstatus' }).click();
+  await expect(page.getByRole('heading', { name: 'Systemstatus' })).toBeVisible();
+}
+
 test.describe('app shell', () => {
   test('boots into the library on a non-iOS client', async ({ page }) => {
     await page.goto('./');
 
     await expect(page.getByRole('heading', { name: 'Emulator', level: 1 })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Systemstatus' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Spiel hinzufügen' })).toBeVisible();
   });
 
   test('reports cross-origin isolation and SharedArrayBuffer as available', async ({ page }) => {
     await page.goto('./');
-    await expect(page.getByRole('heading', { name: 'Systemstatus' })).toBeVisible();
+    await openDiagnostics(page);
 
     // The preview server sends real COOP/COEP headers, so isolation must hold
     // without the service worker fallback kicking in.
@@ -27,6 +33,7 @@ test.describe('app shell', () => {
 
   test('requests persistent storage on launch', async ({ page }) => {
     await page.goto('./');
+    await openDiagnostics(page);
     await expect(page.locator('.row', { hasText: 'Dauerhafter Speicher' })).toBeVisible();
     // Chromium grants persistence headlessly only sometimes; what must hold is
     // that the app asked and rendered a definite answer rather than hanging.
@@ -47,7 +54,7 @@ test.describe('app shell', () => {
 
   test('does not scroll horizontally', async ({ page }) => {
     await page.goto('./');
-    await expect(page.getByRole('heading', { name: 'Systemstatus' })).toBeVisible();
+    await openDiagnostics(page);
 
     const overflows = await page.evaluate(
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -65,16 +72,16 @@ test.describe('install gate on iOS', () => {
     await expect(
       page.getByRole('heading', { name: 'Zum Home-Bildschirm hinzufügen' }),
     ).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Systemstatus' })).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Spiel hinzufügen' })).toBeHidden();
   });
 
   test('lets the user continue anyway, and remembers that choice', async ({ page }) => {
     await page.goto('./');
     await page.getByRole('button', { name: 'Ohne Installation fortfahren' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Systemstatus' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Spiel hinzufügen' })).toBeVisible();
 
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Systemstatus' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Spiel hinzufügen' })).toBeVisible();
   });
 });

@@ -9,9 +9,10 @@ playwright-report/
 blob-report/
 .playwright/
 
-# Emscripten / core build output lands here and is rebuilt, never committed.
+# Intermediate core build output. The finished WASM cores in public/cores/ ARE
+# committed, so deploying never needs an Emscripten toolchain.
+build/
 vendor/**/build/
-public/cores/
 
 # Never commit game images or personal save data. Test ROMs live under
 # tests/roms/ and are explicitly re-included below.

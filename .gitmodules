@@ -1,0 +1,4 @@
+[submodule "vendor/sameboy"]
+	path = vendor/sameboy
+	url = https://github.com/LIJI32/SameBoy.git
+	branch = master

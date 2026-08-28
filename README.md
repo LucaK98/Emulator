@@ -11,8 +11,8 @@ Das besondere Feature ist ein **2.5D-Renderer für Game-Boy-Spiele**: der Core g
 | Phase | Inhalt | Stand |
 | --- | --- | --- |
 | 0 | Fundament: PWA-Shell, Cross-Origin-Isolation, Speicher-Persistenz, CI/Deploy | ✅ fertig |
-| 1 | Game Boy / Color spielbar (SameBoy-Core, Renderer, Audio, Touch-Controls) | offen |
-| 2 | Savestates, Bibliothek, Export/Import, Controller | offen |
+| 1 | Game Boy / Color spielbar (SameBoy-Core, Renderer, Audio, Touch-Controls) | ✅ fertig |
+| 2 | Savestate-Slots, Export/Import, Controller-Support | offen |
 | 3 | 2.5D-Renderer | offen |
 | 4 | Game Boy Advance (mGBA) | offen |
 | 5 | Nintendo DS (melonDS) | offen |
@@ -26,6 +26,29 @@ Das besondere Feature ist ein **2.5D-Renderer für Game-Boy-Spiele**: der Core g
 
 Schritt 2 ist keine Kür. Safari löscht Website-Daten nach sieben Tagen ohne Nutzung; nur eine zum Home-Bildschirm hinzugefügte App mit `display: standalone` ist davon ausgenommen. Die App blockiert deshalb den Start in einem Safari-Tab und erklärt den Schritt. Zusätzlich wird bei jedem Start `navigator.storage.persist()` angefragt — der aktuelle Stand steht im Systemstatus.
 
+## Wie es funktioniert
+
+**Cores.** Game Boy und Game Boy Color laufen auf [SameBoy](https://github.com/LIJI32/SameBoy) (Submodul unter `vendor/sameboy`, auf `v1.0.3` gepinnt), übersetzt nach WebAssembly. Der Wrapper in `native/gb/sameboy_wasm.c` hält Frame- und Audiopuffer als statischen Speicher, damit die JavaScript-Seite direkt aus dem WASM-Heap liest. SameBoys eigene Boot-ROMs werden aus dem Quelltext assembliert und ins Modul eingebettet.
+
+**Threads.** Ein Worker besitzt den Core und die Uhr. Bild und Ton wandern über einen `SharedArrayBuffer`: der Renderer liest die Pixel, die der Worker hineingeschrieben hat, und das AudioWorklet leert den Ringpuffer auf dem Audio-Thread, ohne den Main-Thread zu wecken.
+
+**Taktung.** Das Audiogerät ist die Uhr. Ein Frame wird emuliert, wenn im Ringpuffer Platz für den Ton ist, den er erzeugt — dadurch läuft die Emulation ohne Drift synchron zur Ausgabe. Wenn nichts abgespielt wird (stummes Gerät, angehaltener AudioContext, Headless-Browser), erkennt der Worker den stehenden Ring, verwirft den Rückstau und taktet auf die Wanduhr um: das Spiel läuft dann still weiter, statt einzufrieren.
+
+**Speichern.** Zwei Mechanismen laufen parallel. Batteriegepufferter Cartridge-RAM wird alle zwei Sekunden mit dem Gespeicherten verglichen und nur bei Änderung geschrieben. Zusätzlich entsteht bei `pagehide` und `visibilitychange` ein automatischer Savestate — das ist der letzte Moment, den iOS zusichert, bevor es eine App im Hintergrund abräumt. Beim erneuten Öffnen wird dieser Stand wiederhergestellt.
+
+## Cores neu bauen
+
+Die fertigen WASM-Cores liegen unter `public/cores/` **im Repo**. Weder CI noch das Pages-Deployment brauchen deshalb eine Emscripten-Toolchain. Neu bauen musst du sie nur, wenn du das Submodul oder den Wrapper änderst:
+
+```bash
+git submodule update --init --recursive
+source /pfad/zu/emsdk/emsdk_env.sh        # Emscripten
+RGBDS_DIR=/pfad/zu/rgbds \
+  ./scripts/build-cores/build-sameboy.sh  # baut Boot-ROMs + sameboy.wasm
+```
+
+[RGBDS](https://github.com/gbdev/rgbds) wird gebraucht, weil SameBoys Boot-ROMs Assembler-Quelltext sind.
+
 ## Entwicklung
 
 ```bash
@@ -38,6 +61,8 @@ npm test             # Unit-Tests (Vitest)
 npm run test:e2e     # Browser-Tests (Playwright)
 npm run gen:icons    # PWA-Icons neu erzeugen (stdlib-Python, kein Pillow nötig)
 ```
+
+Die Unit-Tests fahren den gebauten Core direkt in Node und prüfen ihn gegen blarggs Hardware-Test-ROMs (`cpu_instrs`, `instr_timing`) sowie einen Savestate-Round-Trip. Die Browser-Tests importieren eine ROM, spielen sie, beenden und laden neu — der Spielstand muss den Reload überleben.
 
 Läuft in einer Umgebung bereits ein Chromium, kann Playwright ihn statt eines eigenen Downloads verwenden:
 

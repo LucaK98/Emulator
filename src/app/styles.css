@@ -231,3 +231,359 @@ h2 {
 .status-neutral {
   color: var(--text);
 }
+
+/* --- Buttons ------------------------------------------------------------ */
+
+.primary-button {
+  min-height: 48px;
+  padding: 0 1.25rem;
+  background: var(--accent);
+  color: #0d1207;
+  border: none;
+  border-radius: 0.75rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary-button:active {
+  filter: brightness(0.9);
+}
+
+.icon-button {
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+/* --- Game grid ---------------------------------------------------------- */
+
+.game-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.875rem;
+}
+
+.game-grid li {
+  position: relative;
+}
+
+.game-tile {
+  width: 100%;
+  display: grid;
+  gap: 0.375rem;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.875rem;
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.game-tile:active {
+  border-color: var(--accent);
+}
+
+.game-thumb {
+  display: block;
+  aspect-ratio: 10 / 9;
+  background: #0a0d11;
+}
+
+.game-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* Keep the pixel grid crisp when the tile scales the 160x144 frame up. */
+  image-rendering: pixelated;
+}
+
+.game-thumb-empty {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      transparent 0 6px,
+      rgba(255, 255, 255, 0.03) 6px 12px
+    );
+}
+
+.game-title {
+  padding: 0 0.625rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-meta {
+  padding: 0 0.625rem 0.625rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.tile-delete {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.375rem;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(10, 13, 17, 0.75);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+/* --- Player ------------------------------------------------------------- */
+
+.player {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 0;
+  padding: 0;
+  height: 100dvh;
+  overflow: hidden;
+  background: #05070a;
+}
+
+.player-stage {
+  position: relative;
+  min-height: 0;
+  padding: calc(var(--safe-top) + 0.5rem) var(--safe-right) 0.5rem var(--safe-left);
+}
+
+.player-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* The GL viewport does the letterboxing; the element just fills the stage. */
+  touch-action: none;
+}
+
+.player-overlay {
+  position: absolute;
+  inset: 0;
+  /* Above the control surface, which overlays the stage in landscape. */
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(5, 7, 10, 0.82);
+  backdrop-filter: blur(6px);
+}
+
+.overlay-card {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: stretch;
+  text-align: center;
+  min-width: min(20rem, 100%);
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+}
+
+.overlay-card h2 {
+  text-align: center;
+}
+
+/* --- Touch controls ----------------------------------------------------- */
+
+.touch-surface {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'dpad system face';
+  align-items: center;
+  gap: 0.5rem;
+  padding:
+    0.75rem calc(var(--safe-right) + 0.75rem) calc(var(--safe-bottom) + 0.75rem)
+    calc(var(--safe-left) + 0.75rem);
+  touch-action: none;
+}
+
+.touch-surface[data-disabled] {
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+.dpad {
+  grid-area: dpad;
+  position: relative;
+  width: 7.75rem;
+  height: 7.75rem;
+}
+
+.dpad-arm {
+  position: absolute;
+  background: var(--surface-raised);
+  border-radius: 0.5rem;
+}
+
+.dpad-vertical {
+  left: 33.3%;
+  right: 33.3%;
+  top: 0;
+  bottom: 0;
+}
+
+.dpad-horizontal {
+  top: 33.3%;
+  bottom: 33.3%;
+  left: 0;
+  right: 0;
+}
+
+.dpad-cap {
+  position: absolute;
+  width: 33.4%;
+  height: 33.4%;
+  border-radius: 0.4rem;
+  transition: background-color 60ms linear;
+}
+
+.dpad-up { top: 0; left: 33.3%; }
+.dpad-down { bottom: 0; left: 33.3%; }
+.dpad-left { left: 0; top: 33.3%; }
+.dpad-right { right: 0; top: 33.3%; }
+
+.dpad-cap.is-pressed,
+.dpad-arm.is-pressed {
+  background: var(--accent);
+}
+
+/*
+ * A sits up and to the right of B, as on the hardware. Offsetting the buttons
+ * rather than rotating the row keeps each one's bounding box axis-aligned,
+ * which is what the pointer hit-test measures.
+ */
+.face-buttons {
+  grid-area: face;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.625rem;
+}
+
+.face-button {
+  width: 3.9rem;
+  height: 3.9rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  font-size: 1.0625rem;
+  transition: background-color 60ms linear;
+}
+
+/* B, the first button, hangs lower. */
+.face-buttons .face-button:first-child {
+  margin-bottom: -1.1rem;
+}
+
+.face-button.is-pressed {
+  background: var(--accent);
+  color: #0d1207;
+}
+
+.system-buttons {
+  grid-area: system;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.pill {
+  min-width: 4.5rem;
+  min-height: 32px;
+  padding: 0 0.625rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.8125rem;
+  transition: background-color 60ms linear;
+}
+
+.pill.is-pressed {
+  background: var(--accent);
+  color: #0d1207;
+}
+
+.pill-menu {
+  color: var(--text);
+}
+
+/*
+ * Landscape: the screen is height-limited, so wide margins open up on both
+ * sides. Everything is placed into those margins by hand — nothing may sit on
+ * top of the picture.
+ */
+@media (orientation: landscape) and (max-height: 560px) {
+  .player {
+    grid-template-rows: 1fr;
+  }
+
+  .player-stage {
+    grid-row: 1;
+    grid-column: 1;
+    padding-bottom: 0;
+  }
+
+  .touch-surface {
+    grid-row: 1;
+    grid-column: 1;
+    position: relative;
+    display: block;
+    padding: 0;
+    background: none;
+  }
+
+  .dpad {
+    position: absolute;
+    left: calc(var(--safe-left) + 0.9rem);
+    bottom: calc(var(--safe-bottom) + 1rem);
+    width: 7rem;
+    height: 7rem;
+  }
+
+  .face-buttons {
+    position: absolute;
+    right: calc(var(--safe-right) + 0.9rem);
+    bottom: calc(var(--safe-bottom) + 1.6rem);
+  }
+
+  .face-button {
+    width: 3.6rem;
+    height: 3.6rem;
+  }
+
+  .system-buttons {
+    position: absolute;
+    left: calc(var(--safe-left) + 0.9rem);
+    top: calc(var(--safe-top) + 0.75rem);
+    align-items: flex-start;
+  }
+}
