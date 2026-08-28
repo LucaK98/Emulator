@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { Onboarding } from './Onboarding';
 import { Library } from './Library';
 import { Player } from './Player';
+import { Settings } from './Settings';
 import { storageIsAtRiskOfEviction } from '../platform/device';
 import { ensureIsolation, registerServiceWorker, type IsolationState } from '../platform/isolation';
 import { requestPersistentStorage, type StorageStatus } from '../storage/persist';
@@ -21,6 +22,7 @@ export function App() {
   const [boot, setBoot] = useState<Boot>({ phase: 'starting' });
   const [bypassed, setBypassed] = useState(() => sessionStorage.getItem(BYPASS_KEY) === '1');
   const [playing, setPlaying] = useState<GameEntry | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +67,17 @@ export function App() {
     );
   }
 
+  if (settingsOpen) {
+    return (
+      <Settings
+        isolation={boot.isolation}
+        storage={boot.storage}
+        onStorageChange={(storage) => setBoot({ ...boot, storage })}
+        onClose={() => setSettingsOpen(false)}
+      />
+    );
+  }
+
   if (playing) {
     return (
       <Player
@@ -75,5 +88,5 @@ export function App() {
     );
   }
 
-  return <Library isolation={boot.isolation} storage={boot.storage} onPlay={setPlaying} />;
+  return <Library onPlay={setPlaying} onOpenSettings={() => setSettingsOpen(true)} />;
 }

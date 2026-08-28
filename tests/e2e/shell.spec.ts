@@ -4,10 +4,10 @@ const IPHONE_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 ' +
   '(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 
-/** The status panel is collapsed by default; open it before asserting on it. */
+/** Device status lives on the settings screen. */
 async function openDiagnostics(page: import('@playwright/test').Page): Promise<void> {
-  await page.getByRole('button', { name: 'Systemstatus' }).click();
-  await expect(page.getByRole('heading', { name: 'Systemstatus' })).toBeVisible();
+  await page.getByRole('button', { name: 'Einstellungen' }).click();
+  await expect(page.getByRole('heading', { name: 'Speicher' })).toBeVisible();
 }
 
 test.describe('app shell', () => {

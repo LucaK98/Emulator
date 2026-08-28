@@ -19,11 +19,14 @@ import {
 import { DepthControls } from './DepthControls';
 import { InputState, attachKeyboard } from '../input/InputState';
 import { TouchControls } from './TouchControls';
+import { SaveSlots } from './SaveSlots';
+import { GamepadReader } from '../input/gamepad';
 import { frameToDataUrl } from './frameThumbnail';
 import { SYSTEMS } from '../core/systems';
 import {
   AUTO_SLOT,
   getRom,
+  getState as readState,
   getSave,
   getState,
   putState,
@@ -63,6 +66,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const coreRef = useRef<CoreClient | null>(null);
   const inputRef = useRef(new InputState());
+  const gamepadRef = useRef<GamepadReader | null>(null);
 
   const [phase, setPhase] = useState<Phase>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +102,33 @@ export function Player({ game, baseUrl, onExit }: Props) {
     await putState(game.id, AUTO_SLOT, data, thumbnail);
     await updateGame(game.id, { lastPlayedAt: Date.now(), thumbnail });
   }, [game.id, spec]);
+
+  const saveToSlot = useCallback(
+    async (slot: string) => {
+      const core = coreRef.current;
+      if (!core) throw new Error('Kein laufendes Spiel');
+      const data = await core.readState();
+      if (!data) throw new Error('Zwischenstand konnte nicht erstellt werden');
+      const frame = core.currentFrame();
+      await putState(game.id, slot, data, frame ? frameToDataUrl(frame, spec) : null);
+    },
+    [game.id, spec],
+  );
+
+  const loadFromSlot = useCallback(
+    async (slot: string) => {
+      const core = coreRef.current;
+      if (!core) throw new Error('Kein laufendes Spiel');
+      const record = await readState(game.id, slot);
+      if (!record) throw new Error('Slot ist leer');
+      // Cartridge RAM is flushed first so the state we are leaving is not lost.
+      await flushBattery();
+      if (!(await core.loadState(record.data))) {
+        throw new Error('Zwischenstand passt nicht zu diesem Spiel');
+      }
+    },
+    [game.id, flushBattery],
+  );
 
   /* --- Boot ------------------------------------------------------------- */
 
@@ -191,9 +222,17 @@ export function Player({ game, baseUrl, onExit }: Props) {
     const input = inputRef.current;
     const unsubscribe = input.subscribe((mask) => coreRef.current?.setKeys(mask));
     const detachKeyboard = attachKeyboard(input);
+
+    // Polled on its own frame so a controller still works while paused.
+    const gamepad = new GamepadReader(input);
+    gamepadRef.current = gamepad;
+    gamepad.start();
+
     return () => {
       unsubscribe();
       detachKeyboard();
+      gamepad.stop();
+      gamepadRef.current = null;
     };
   }, []);
 
@@ -340,6 +379,8 @@ export function Player({ game, baseUrl, onExit }: Props) {
               Speichern und beenden
             </button>
 
+            <SaveSlots gameId={game.id} onSave={saveToSlot} onLoad={loadFromSlot} />
+
             <DepthControls
               enabled={depthMode}
               available={depthAvailable}
@@ -355,7 +396,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
               onChange={changeDepthSettings}
             />
 
-            <p class="footnote">{fps.toFixed(0)} fps</p>
+            <p class="footnote fps-readout">{fps.toFixed(0)} fps</p>
           </Overlay>
         )}
       </div>

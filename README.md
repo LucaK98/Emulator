@@ -14,7 +14,7 @@ Das besondere Feature ist ein **2.5D-Renderer für Game-Boy-Spiele**: der Core g
 | --- | --- | --- |
 | 0 | Fundament: PWA-Shell, Cross-Origin-Isolation, Speicher-Persistenz, CI/Deploy | ✅ fertig |
 | 1 | Game Boy / Color spielbar (SameBoy-Core, Renderer, Audio, Touch-Controls) | ✅ fertig |
-| 2 | Savestate-Slots, Export/Import, Controller-Support | offen |
+| 2 | Savestate-Slots, Export/Import, Controller-Support | ✅ fertig |
 | 3 | 2.5D-Renderer für Game Boy / Color | ✅ fertig |
 | 4 | Game Boy Advance (mGBA) | ✅ fertig |
 | 5 | Nintendo DS (melonDS) | offen |
@@ -49,6 +49,12 @@ Der Effekt ist nicht in jedem Spiel gleich stark, deshalb liegen Ein/Aus, Kamera
 Für den GBA gibt es das noch nicht: Der Tiefen-Renderer liest die Game-Boy-PPU mit ihrer einen Hintergrundebene und 8×8-Kacheln. Der GBA hat vier Ebenen mit eigenen Prioritäten, Rotation und Skalierung — die Idee überträgt sich, aber es ist eigene Arbeit. Das Pausenmenü sagt das an der Stelle, wo sonst der Schalter wäre.
 
 **Speichern.** Zwei Mechanismen laufen parallel. Batteriegepufferter Cartridge-RAM wird alle zwei Sekunden mit dem Gespeicherten verglichen und nur bei Änderung geschrieben. Zusätzlich entsteht bei `pagehide` und `visibilitychange` ein automatischer Savestate — das ist der letzte Moment, den iOS zusichert, bevor es eine App im Hintergrund abräumt. Beim erneuten Öffnen wird dieser Stand wiederhergestellt.
+
+Dazu kommen acht Slots von Hand, jeder mit einem Bild des Moments und dem Alter. Speichern und Laden sind getrennte Modi statt zwei Knöpfe pro Slot: Auf einem Telefon werden neun Slots mit je zwei Knöpfen zu klein zum sicheren Treffen, und den falschen Stand zu überschreiben ist der eine Fehler, der wirklich Fortschritt kostet. Der Auto-Slot lässt sich nicht von Hand überschreiben — er ist das Netz der App.
+
+**Sicherung.** Ein Backup ist eine gewöhnliche ZIP-Datei: `manifest.json`, `saves/`, `states/`, optional `roms/`. Der Punkt ist, dass der Fortschritt nicht in einer Browser-Datenbank gefangen ist, die man nicht sehen kann — die Datei geht über das iOS-Teilen-Blatt in die Dateien-App oder nach iCloud, und jeder kann sie öffnen. Spielstände hängen am ROM-Hash, deshalb findet ein eingespielter Stand sein Spiel auch dann wieder, wenn die ROM erst danach importiert wird.
+
+**Controller.** Die Gamepad-API funktioniert in iOS Safari; ein gekoppelter MFi-, DualSense- oder Xbox-Controller taucht dort auf. Die Standardbelegung folgt der Anordnung statt den Beschriftungen: Auf einem Game Boy sitzt A rechts oberhalb von B, auf einem Standard-Controller die rechte Gesichtstaste ebenso zur unteren — so bleibt die Muskelerinnerung über sehr verschieden beschriftete Pads hinweg erhalten. Umbelegen geht in den Einstellungen. Der linke Stick verhält sich immer zusätzlich wie ein Steuerkreuz.
 
 ## Cores neu bauen
 
@@ -85,6 +91,8 @@ Die Unit-Tests fahren den gebauten Core direkt in Node:
 - **Höhenmodell** gegen `tests/roms/overworld-probe.gb`, eine scrollende Karte mit einer Figur, die einen Korridor aus Bodenkacheln entlangläuft. Im ROM steht nirgends, welche Kachel Kulisse ist — der Test verlangt, dass genau die Kulisse steht und der Boden flach bleibt.
 
 Die Browser-Tests importieren eine ROM, spielen sie, beenden und laden neu (der Spielstand muss den Reload überleben), schalten 2.5D ein und prüfen, dass sich das Bild ändert und das Modell die richtige Kachel anhebt. Für den GBA prüfen sie zusätzlich, dass das Bild im richtigen Seitenverhältnis gezeichnet wird und die Schultertasten erscheinen.
+
+Der Sicherungs-Test geht den ganzen Weg: Slot schreiben, Backup erzeugen, das Spiel samt Ständen löschen, das Backup wieder einspielen — danach muss der Slot erneut ladbar sein.
 
 Läuft in einer Umgebung bereits ein Chromium, kann Playwright ihn statt eines eigenen Downloads verwenden:
 

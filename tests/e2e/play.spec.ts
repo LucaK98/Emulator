@@ -49,7 +49,8 @@ test.describe('playing a game', () => {
     await page.waitForTimeout(1500);
     await page.getByRole('button', { name: 'Menü' }).click();
 
-    const fps = page.locator('.overlay-card .footnote');
+    // The pause overlay carries several footnotes now; the readout has its own hook.
+    const fps = page.locator('.overlay-card .fps-readout');
     await expect(fps).toBeVisible();
     const reported = Number((await fps.textContent())?.replace(/[^\d.]/g, ''));
     // A headless runner will not hold a steady 60, but anything near zero means

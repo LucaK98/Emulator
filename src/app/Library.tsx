@@ -6,20 +6,17 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { importRom, listGames, deleteGame, type GameEntry } from '../storage/library';
 import { ALL_ROM_EXTENSIONS, SYSTEMS } from '../core/systems';
-import { formatBytes, type StorageStatus } from '../storage/persist';
-import { hasSharedArrayBuffer, type IsolationState } from '../platform/isolation';
+import { formatBytes } from '../storage/persist';
 
 interface Props {
-  isolation: Exclude<IsolationState, { status: 'reloading' }>;
-  storage: StorageStatus;
   onPlay: (game: GameEntry) => void;
+  onOpenSettings: () => void;
 }
 
-export function Library({ isolation, storage, onPlay }: Props) {
+export function Library({ onPlay, onOpenSettings }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [games, setGames] = useState<GameEntry[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const refresh = () => void listGames().then(setGames);
 
@@ -60,10 +57,10 @@ export function Library({ isolation, storage, onPlay }: Props) {
         <button
           type="button"
           class="icon-button"
-          onClick={() => setShowDiagnostics((open) => !open)}
-          aria-label="Systemstatus"
+          onClick={onOpenSettings}
+          aria-label="Einstellungen"
         >
-          ⓘ
+          ⚙
         </button>
       </header>
 
@@ -120,39 +117,6 @@ export function Library({ isolation, storage, onPlay }: Props) {
         </ul>
       )}
 
-      {showDiagnostics && (
-        <section class="diagnostics">
-          <h2>Systemstatus</h2>
-          <dl>
-            <Row
-              label="Dauerhafter Speicher"
-              ok={storage.persisted}
-              value={
-                storage.unsupported
-                  ? 'Nicht unterstützt'
-                  : storage.persisted
-                    ? 'Aktiv'
-                    : 'Nur Best-Effort'
-              }
-            />
-            <Row
-              label="Speicherbelegung"
-              neutral
-              value={`${formatBytes(storage.usage)} von ${formatBytes(storage.quota)}`}
-            />
-            <Row
-              label="Cross-Origin-Isolation"
-              ok={isolation.status === 'isolated'}
-              value={isolation.status === 'isolated' ? 'Aktiv' : isolation.reason}
-            />
-            <Row
-              label="SharedArrayBuffer"
-              ok={hasSharedArrayBuffer()}
-              value={hasSharedArrayBuffer() ? 'Verfügbar' : 'Fallback ohne SAB'}
-            />
-          </dl>
-        </section>
-      )}
     </main>
   );
 }
@@ -161,24 +125,4 @@ export function Library({ isolation, storage, onPlay }: Props) {
 function describeSystem(game: GameEntry): string {
   if (game.system === 'gb') return game.colorCapable ? 'Game Boy Color' : 'Game Boy';
   return SYSTEMS[game.system].label;
-}
-
-function Row({
-  label,
-  value,
-  ok,
-  neutral = false,
-}: {
-  label: string;
-  value: string;
-  ok?: boolean;
-  neutral?: boolean;
-}) {
-  const state = neutral ? 'neutral' : ok ? 'ok' : 'warn';
-  return (
-    <div class="row">
-      <dt>{label}</dt>
-      <dd class={`status status-${state}`}>{value}</dd>
-    </div>
-  );
 }

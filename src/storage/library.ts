@@ -11,7 +11,7 @@
 import { isLikelyGameBoyRom, parseGbRom, romId } from '../core/gbRom';
 import { isLikelyGbaRom, parseGbaRom } from '../core/gbaRom';
 import { systemForFileName, type SystemId } from '../core/systems';
-import { Store, get, getAll, put, remove } from './db';
+import { Store, get, getAll, getAllKeys, put, remove } from './db';
 
 export interface GameEntry {
   id: string;
@@ -44,6 +44,9 @@ export interface StateRecord {
 
 /** Slot name for the state written automatically when the app is backgrounded. */
 export const AUTO_SLOT = 'auto';
+
+/** Manual slots, numbered as the user sees them. */
+export const MANUAL_SLOTS = ['1', '2', '3', '4', '5', '6', '7', '8'] as const;
 
 export async function listGames(): Promise<GameEntry[]> {
   const games = await getAll<GameEntry>(Store.Games);
@@ -196,9 +199,45 @@ export function deleteState(id: string, slot: string): Promise<undefined> {
   return remove(Store.States, stateKey(id, slot));
 }
 
+export interface SlotSummary {
+  slot: string;
+  /** Null when the slot is empty. */
+  createdAt: number | null;
+  thumbnail: string | null;
+  bytes: number;
+}
+
+/**
+ * Everything the slot picker needs, without loading the states themselves —
+ * a Game Boy Advance state is half a megabyte, and there can be nine of them.
+ */
+export async function listSlots(id: string): Promise<SlotSummary[]> {
+  const slots = [AUTO_SLOT, ...MANUAL_SLOTS];
+  const records = await Promise.all(slots.map((slot) => getState(id, slot)));
+
+  return slots.map((slot, index) => {
+    const record = records[index];
+    return {
+      slot,
+      createdAt: record?.createdAt ?? null,
+      thumbnail: record?.thumbnail ?? null,
+      bytes: record?.data.byteLength ?? 0,
+    };
+  });
+}
+
+/** Every stored state key, for the backup writer. */
+export function listAllStateKeys(): Promise<IDBValidKey[]> {
+  return getAllKeys(Store.States);
+}
+
 /**
  * Fletcher-32: strong enough to notice a changed save, and fast enough to run
  * over 128 KiB every couple of seconds without showing up in a profile.
+ *
+ * Note that it cannot distinguish runs of zeroes of different lengths — a known
+ * property of Fletcher sums — which is why saveBatteryIfChanged compares the
+ * byte length as well and never relies on the checksum alone.
  */
 export function fletcher32(bytes: Uint8Array): number {
   let sum1 = 0xffff;
