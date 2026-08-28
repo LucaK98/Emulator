@@ -16,7 +16,7 @@
  * the same here as in the flat renderer apart from the perspective.
  */
 
-import { SCREEN_HEIGHT, SCREEN_WIDTH } from '../core/protocol';
+import { GB_SCREEN_HEIGHT, GB_SCREEN_WIDTH } from '../core/protocol';
 import { TileHeightModel } from './heightModel';
 import {
   ATLAS_HEIGHT,
@@ -328,7 +328,12 @@ export class Depth25DRenderer implements SceneRenderer {
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    const frame = fitViewport(this.canvas.width, this.canvas.height);
+    const frame = fitViewport(
+      this.canvas.width,
+      this.canvas.height,
+      GB_SCREEN_WIDTH,
+      GB_SCREEN_HEIGHT,
+    );
     gl.viewport(frame.x, frame.y, frame.width, frame.height);
     gl.enable(gl.SCISSOR_TEST);
     gl.scissor(frame.x, frame.y, frame.width, frame.height);
@@ -380,16 +385,16 @@ export class Depth25DRenderer implements SceneRenderer {
   private buildCamera(): void {
     // The viewport is always the console's aspect ratio, so the scene sits in
     // the same rectangle as the flat picture.
-    const aspect = SCREEN_WIDTH / SCREEN_HEIGHT;
-    const centreX = SCREEN_WIDTH / 2;
-    const centreY = -SCREEN_HEIGHT / 2;
+    const aspect = GB_SCREEN_WIDTH / GB_SCREEN_HEIGHT;
+    const centreX = GB_SCREEN_WIDTH / 2;
+    const centreY = -GB_SCREEN_HEIGHT / 2;
     const tilt = (this.settings.tiltDegrees * Math.PI) / 180;
 
     // Frame the screen area by fitting it, then correcting once for how much of
     // the frustum it actually filled. One correction is enough because at these
     // distances the projected size is very nearly inversely proportional to
     // the camera distance.
-    let distance = (SCREEN_HEIGHT / 2 / Math.tan(FOV_Y / 2)) * 1.2;
+    let distance = (GB_SCREEN_HEIGHT / 2 / Math.tan(FOV_Y / 2)) * 1.2;
     for (let pass = 0; pass < 2; pass++) {
       this.placeCamera(distance, tilt, centreX, centreY, aspect);
       const fill = this.projectedFill();
@@ -397,7 +402,7 @@ export class Depth25DRenderer implements SceneRenderer {
     }
     this.placeCamera(distance, tilt, centreX, centreY, aspect);
 
-    orthographic(this.flatProj, 0, SCREEN_WIDTH, -SCREEN_HEIGHT, 0, -1, 1);
+    orthographic(this.flatProj, 0, GB_SCREEN_WIDTH, -GB_SCREEN_HEIGHT, 0, -1, 1);
   }
 
   private placeCamera(
@@ -425,8 +430,8 @@ export class Depth25DRenderer implements SceneRenderer {
   private projectedFill(): number {
     const top = this.settings.extrusion;
     let extent = 0;
-    for (const x of [0, SCREEN_WIDTH]) {
-      for (const y of [0, -SCREEN_HEIGHT]) {
+    for (const x of [0, GB_SCREEN_WIDTH]) {
+      for (const y of [0, -GB_SCREEN_HEIGHT]) {
         for (const z of [0, top]) {
           const clipX =
             this.viewProj[0]! * x + this.viewProj[4]! * y + this.viewProj[8]! * z + this.viewProj[12]!;

@@ -11,7 +11,7 @@
  * the same frame data.
  */
 
-import { SCREEN_HEIGHT, SCREEN_WIDTH } from '../core/protocol';
+import type { SystemSpec } from '../core/systems';
 import type { SceneRenderer } from './SceneRenderer';
 
 const VERTEX_SHADER = `#version 300 es
@@ -44,10 +44,11 @@ export class GLRenderer implements SceneRenderer {
   private constructor(
     private readonly canvas: HTMLCanvasElement,
     gl: WebGL2RenderingContext,
+    private readonly spec: SystemSpec,
   ) {
     this.gl = gl;
     this.program = createProgram(gl, VERTEX_SHADER, FRAGMENT_SHADER);
-    this.texture = createScreenTexture(gl);
+    this.texture = createScreenTexture(gl, spec.width, spec.height);
     this.vao = createQuad(gl, this.program);
 
     gl.useProgram(this.program);
@@ -55,7 +56,7 @@ export class GLRenderer implements SceneRenderer {
     gl.clearColor(0, 0, 0, 1);
   }
 
-  static create(canvas: HTMLCanvasElement): GLRenderer | null {
+  static create(canvas: HTMLCanvasElement, spec: SystemSpec): GLRenderer | null {
     const gl = canvas.getContext('webgl2', {
       alpha: false,
       antialias: false,
@@ -66,7 +67,7 @@ export class GLRenderer implements SceneRenderer {
       powerPreference: 'low-power',
     });
     if (!gl) return null;
-    return new GLRenderer(canvas, gl);
+    return new GLRenderer(canvas, gl, spec);
   }
 
   /** Resizes the drawing buffer to the element's size in device pixels. */
@@ -91,8 +92,8 @@ export class GLRenderer implements SceneRenderer {
       0,
       0,
       0,
-      SCREEN_WIDTH,
-      SCREEN_HEIGHT,
+      this.spec.width,
+      this.spec.height,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
       new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength),
@@ -102,7 +103,12 @@ export class GLRenderer implements SceneRenderer {
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
 
-    const { x, y, width, height } = fitViewport(this.canvas.width, this.canvas.height);
+    const { x, y, width, height } = fitViewport(
+      this.canvas.width,
+      this.canvas.height,
+      this.spec.width,
+      this.spec.height,
+    );
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.viewport(x, y, width, height);
@@ -140,8 +146,10 @@ const MAX_SNAP_WASTE = 0.1;
 export function fitViewport(
   bufferWidth: number,
   bufferHeight: number,
+  nativeWidth: number,
+  nativeHeight: number,
 ): { x: number; y: number; width: number; height: number } {
-  const scale = Math.min(bufferWidth / SCREEN_WIDTH, bufferHeight / SCREEN_HEIGHT);
+  const scale = Math.min(bufferWidth / nativeWidth, bufferHeight / nativeHeight);
 
   let chosen = scale;
   if (scale >= 1) {
@@ -149,8 +157,8 @@ export function fitViewport(
     if ((scale - snapped) / scale <= MAX_SNAP_WASTE) chosen = snapped;
   }
 
-  const width = Math.round(SCREEN_WIDTH * chosen);
-  const height = Math.round(SCREEN_HEIGHT * chosen);
+  const width = Math.round(nativeWidth * chosen);
+  const height = Math.round(nativeHeight * chosen);
   return {
     x: Math.round((bufferWidth - width) / 2),
     y: Math.round((bufferHeight - height) / 2),
@@ -190,7 +198,11 @@ function createProgram(gl: WebGL2RenderingContext, vs: string, fs: string): WebG
   return program;
 }
 
-function createScreenTexture(gl: WebGL2RenderingContext): WebGLTexture {
+function createScreenTexture(
+  gl: WebGL2RenderingContext,
+  width: number,
+  height: number,
+): WebGLTexture {
   const texture = gl.createTexture();
   if (!texture) throw new Error('Textur konnte nicht erstellt werden');
   gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -198,8 +210,8 @@ function createScreenTexture(gl: WebGL2RenderingContext): WebGLTexture {
     gl.TEXTURE_2D,
     0,
     gl.RGBA,
-    SCREEN_WIDTH,
-    SCREEN_HEIGHT,
+    width,
+    height,
     0,
     gl.RGBA,
     gl.UNSIGNED_BYTE,

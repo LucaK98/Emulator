@@ -8,16 +8,16 @@
  * tab being killed.
  */
 
-import { isLikelyGameBoyRom, parseGbRom, romId, type GbRomInfo } from '../core/gbRom';
+import { isLikelyGameBoyRom, parseGbRom, romId } from '../core/gbRom';
+import { isLikelyGbaRom, parseGbaRom } from '../core/gbaRom';
+import { systemForFileName, type SystemId } from '../core/systems';
 import { Store, get, getAll, put, remove } from './db';
-
-export type System = 'gb';
 
 export interface GameEntry {
   id: string;
   title: string;
-  system: System;
-  /** SameBoy model this cartridge runs on. */
+  system: SystemId;
+  /** Core-specific hardware model; only the Game Boy core distinguishes any. */
   model: number;
   size: number;
   hasBattery: boolean;
@@ -65,36 +65,74 @@ export function getRom(id: string): Promise<ArrayBuffer | undefined> {
  */
 export async function importRom(
   file: File,
-): Promise<{ entry: GameEntry; info: GbRomInfo; alreadyPresent: boolean }> {
+): Promise<{ entry: GameEntry; alreadyPresent: boolean; warning: string | null }> {
   const buffer = await file.arrayBuffer();
   const bytes = new Uint8Array(buffer);
-  if (!isLikelyGameBoyRom(bytes)) {
-    throw new Error('Keine Game-Boy-ROM (erwartet mindestens 32 KB in ganzen Bänken)');
+
+  const spec = systemForFileName(file.name);
+  if (!spec) {
+    throw new Error('Unbekannte Dateiendung (erwartet .gb, .gbc oder .gba)');
   }
-  const id = await romId(bytes);
 
   const fallbackTitle = file.name.replace(/\.[^.]+$/, '');
-  const info = parseGbRom(bytes, fallbackTitle);
-
+  const id = await romId(bytes);
   const existing = await getGame(id);
-  if (existing) return { entry: existing, info, alreadyPresent: true };
+  if (existing) return { entry: existing, alreadyPresent: true, warning: null };
+
+  const draft = spec.id === 'gba' ? describeGba(bytes, fallbackTitle) : describeGb(bytes, fallbackTitle);
 
   const entry: GameEntry = {
     id,
-    title: info.title,
-    system: 'gb',
-    model: info.model,
+    system: spec.id,
     size: buffer.byteLength,
-    hasBattery: info.hasBattery,
-    colorCapable: info.colorCapable,
     addedAt: Date.now(),
     lastPlayedAt: null,
     thumbnail: null,
+    ...draft.entry,
   };
 
   await put(Store.Roms, buffer, id);
   await put(Store.Games, entry);
-  return { entry, info, alreadyPresent: false };
+  return { entry, alreadyPresent: false, warning: draft.warning };
+}
+
+type RomDraft = {
+  entry: Pick<GameEntry, 'title' | 'model' | 'hasBattery' | 'colorCapable'>;
+  warning: string | null;
+};
+
+function describeGb(bytes: Uint8Array, fallbackTitle: string): RomDraft {
+  if (!isLikelyGameBoyRom(bytes)) {
+    throw new Error('Keine Game-Boy-ROM (erwartet mindestens 32 KB in ganzen Bänken)');
+  }
+  const info = parseGbRom(bytes, fallbackTitle);
+  return {
+    entry: {
+      title: info.title,
+      model: info.model,
+      hasBattery: info.hasBattery,
+      colorCapable: info.colorCapable,
+    },
+    warning: info.headerChecksumValid ? null : 'Prüfsumme stimmt nicht, evtl. defekter Dump',
+  };
+}
+
+function describeGba(bytes: Uint8Array, fallbackTitle: string): RomDraft {
+  if (!isLikelyGbaRom(bytes)) {
+    throw new Error('Keine Game-Boy-Advance-ROM (Kopfkennung fehlt)');
+  }
+  const info = parseGbaRom(bytes, fallbackTitle);
+  return {
+    entry: {
+      title: info.title,
+      model: 0,
+      // The save type is only detected once a game first writes to its save
+      // memory, so the player always polls; reads return nothing until then.
+      hasBattery: true,
+      colorCapable: true,
+    },
+    warning: null,
+  };
 }
 
 export async function updateGame(id: string, patch: Partial<GameEntry>): Promise<void> {

@@ -9,19 +9,36 @@
  *
  * Without isolation the same worker falls back to posting buffers, which costs
  * a copy per frame but keeps the app usable.
+ *
+ * The buffer is sized per system, because a Game Boy frame and a Game Boy
+ * Advance frame are not the same size.
  */
 
-export const SCREEN_WIDTH = 160;
-export const SCREEN_HEIGHT = 144;
-export const FRAME_PIXELS = SCREEN_WIDTH * SCREEN_HEIGHT;
+import type { SystemId, SystemSpec } from './systems';
+
+export { Button, bit, SYSTEMS, type ButtonName, type SystemId, type SystemSpec } from './systems';
+
+/** Game Boy screen dimensions, used by the Game Boy specific PPU code. */
+export const GB_SCREEN_WIDTH = 160;
+export const GB_SCREEN_HEIGHT = 144;
 
 /** Two frame slots so the renderer never reads the buffer being written. */
 export const FRAME_SLOTS = 2;
 
+/** Stereo frames held in the audio ring. ~340 ms at 48 kHz. */
+export const AUDIO_RING_FRAMES = 16384;
+export const AUDIO_CHANNELS = 2;
+
+/**
+ * Preferred output rate. The core is retuned to whatever the AudioContext
+ * actually gives us, so no resampling is ever needed.
+ */
+export const PREFERRED_SAMPLE_RATE = 48000;
+
 /* --- PPU capture (for the 2.5D renderer) -------------------------------- */
 
 /**
- * Raw PPU state copied out once per frame when depth rendering is on.
+ * Raw Game Boy PPU state copied out once per frame when depth rendering is on.
  *
  * The 2.5D renderer cannot work from the finished picture — it needs the layers
  * separately, with tile identities intact. So the worker hands over VRAM, OAM,
@@ -39,7 +56,7 @@ export const Ppu = {
   /** 32 colours as RGBA8888, for background and objects each. */
   PALETTE_BYTES: 0x20 * 4,
   SCANLINE_RECORD_BYTES: 8,
-  SCANLINES: SCREEN_HEIGHT,
+  SCANLINES: GB_SCREEN_HEIGHT,
 } as const;
 
 export const PPU_OFFSETS = {
@@ -60,16 +77,6 @@ export const PPU_BLOCK_BYTES =
 /** Index into the header, as Int32 slots. */
 export const PpuHeader = { IS_CGB: 0, VRAM_SIZE: 1 } as const;
 
-/** Stereo frames held in the audio ring. ~340 ms at 48 kHz. */
-export const AUDIO_RING_FRAMES = 16384;
-export const AUDIO_CHANNELS = 2;
-
-/**
- * Preferred output rate. The core is retuned to whatever the AudioContext
- * actually gives us, so no resampling is ever needed.
- */
-export const PREFERRED_SAMPLE_RATE = 48000;
-
 /* --- Control block ------------------------------------------------------ */
 
 /** Int32 slots in the control block, all accessed via Atomics. */
@@ -78,7 +85,7 @@ export const Ctl = {
   FRAME_SEQ: 0,
   /** Which frame slot holds the most recently completed frame. */
   FRAME_SLOT: 1,
-  /** Button bitmask, written by the main thread (see Button below). */
+  /** Button bitmask, written by the main thread (see Button). */
   KEY_MASK: 2,
   /** 0 = stopped, 1 = running, 2 = paused. */
   RUN_STATE: 3,
@@ -102,19 +109,34 @@ export const RunState = { Stopped: 0, Running: 1, Paused: 2 } as const;
 
 /* --- SharedArrayBuffer layout ------------------------------------------- */
 
-const CTL_BYTES = CTL_SLOTS * 4;
-const FRAMES_BYTES = FRAME_PIXELS * 4 * FRAME_SLOTS;
-const AUDIO_BYTES = AUDIO_RING_FRAMES * AUDIO_CHANNELS * 2; // Int16
-/** PPU state is double-buffered alongside the frames, using the same slot index. */
-const PPU_BYTES = PPU_BLOCK_BYTES * FRAME_SLOTS;
+export interface SharedLayout {
+  ctlOffset: number;
+  framesOffset: number;
+  audioOffset: number;
+  ppuOffset: number;
+  framePixels: number;
+  /** Zero for systems without depth support. */
+  ppuBlockBytes: number;
+  totalBytes: number;
+}
 
-export const SHARED_LAYOUT = {
-  ctlOffset: 0,
-  framesOffset: CTL_BYTES,
-  audioOffset: CTL_BYTES + FRAMES_BYTES,
-  ppuOffset: CTL_BYTES + FRAMES_BYTES + AUDIO_BYTES,
-  totalBytes: CTL_BYTES + FRAMES_BYTES + AUDIO_BYTES + PPU_BYTES,
-} as const;
+export function sharedLayout(spec: SystemSpec): SharedLayout {
+  const ctlBytes = CTL_SLOTS * 4;
+  const framePixels = spec.width * spec.height;
+  const framesBytes = framePixels * 4 * FRAME_SLOTS;
+  const audioBytes = AUDIO_RING_FRAMES * AUDIO_CHANNELS * 2; // Int16
+  const ppuBlockBytes = spec.supportsDepth ? PPU_BLOCK_BYTES : 0;
+
+  return {
+    ctlOffset: 0,
+    framesOffset: ctlBytes,
+    audioOffset: ctlBytes + framesBytes,
+    ppuOffset: ctlBytes + framesBytes + audioBytes,
+    framePixels,
+    ppuBlockBytes,
+    totalBytes: ctlBytes + framesBytes + audioBytes + ppuBlockBytes * FRAME_SLOTS,
+  };
+}
 
 export interface SharedViews {
   ctl: Int32Array;
@@ -122,58 +144,62 @@ export interface SharedViews {
   frames: Uint32Array[];
   /** Interleaved stereo Int16 ring. */
   audio: Int16Array;
-  /** One raw PPU block per frame slot; see PPU_OFFSETS. */
+  /** One raw PPU block per frame slot, empty for systems without depth. */
   ppu: Uint8Array[];
 }
 
-export function createSharedBuffer(): SharedArrayBuffer {
-  return new SharedArrayBuffer(SHARED_LAYOUT.totalBytes);
+export function createSharedBuffer(spec: SystemSpec): SharedArrayBuffer {
+  return new SharedArrayBuffer(sharedLayout(spec).totalBytes);
 }
 
-export function viewShared(buffer: SharedArrayBuffer | ArrayBuffer): SharedViews {
+export function viewShared(
+  buffer: SharedArrayBuffer | ArrayBuffer,
+  spec: SystemSpec,
+): SharedViews {
+  const layout = sharedLayout(spec);
+
   const frames: Uint32Array[] = [];
   for (let slot = 0; slot < FRAME_SLOTS; slot++) {
     frames.push(
-      new Uint32Array(buffer, SHARED_LAYOUT.framesOffset + slot * FRAME_PIXELS * 4, FRAME_PIXELS),
-    );
-  }
-  const ppu: Uint8Array[] = [];
-  for (let slot = 0; slot < FRAME_SLOTS; slot++) {
-    ppu.push(
-      new Uint8Array(buffer, SHARED_LAYOUT.ppuOffset + slot * PPU_BLOCK_BYTES, PPU_BLOCK_BYTES),
+      new Uint32Array(
+        buffer,
+        layout.framesOffset + slot * layout.framePixels * 4,
+        layout.framePixels,
+      ),
     );
   }
 
+  const ppu: Uint8Array[] = [];
+  if (layout.ppuBlockBytes > 0) {
+    for (let slot = 0; slot < FRAME_SLOTS; slot++) {
+      ppu.push(
+        new Uint8Array(
+          buffer,
+          layout.ppuOffset + slot * layout.ppuBlockBytes,
+          layout.ppuBlockBytes,
+        ),
+      );
+    }
+  }
+
   return {
-    ctl: new Int32Array(buffer, SHARED_LAYOUT.ctlOffset, CTL_SLOTS),
+    ctl: new Int32Array(buffer, layout.ctlOffset, CTL_SLOTS),
     frames,
-    audio: new Int16Array(buffer, SHARED_LAYOUT.audioOffset, AUDIO_RING_FRAMES * AUDIO_CHANNELS),
+    audio: new Int16Array(buffer, layout.audioOffset, AUDIO_RING_FRAMES * AUDIO_CHANNELS),
     ppu,
   };
 }
 
-/* --- Input -------------------------------------------------------------- */
-
-/** Bit positions match SameBoy's GB_key_t so the mask passes straight through. */
-export const Button = {
-  Right: 0,
-  Left: 1,
-  Up: 2,
-  Down: 3,
-  A: 4,
-  B: 5,
-  Select: 6,
-  Start: 7,
-} as const;
-
-export type ButtonName = keyof typeof Button;
-
-export const BUTTON_NAMES = Object.keys(Button) as ButtonName[];
-
 /* --- Messages ----------------------------------------------------------- */
 
 export type ToWorker =
-  | { type: 'init'; shared: SharedArrayBuffer | null; coreUrl: string; sampleRate: number }
+  | {
+      type: 'init';
+      shared: SharedArrayBuffer | null;
+      coreUrl: string;
+      sampleRate: number;
+      system: SystemId;
+    }
   | { type: 'load'; rom: ArrayBuffer; model: number; battery: ArrayBuffer | null }
   | { type: 'start' }
   | { type: 'pause' }

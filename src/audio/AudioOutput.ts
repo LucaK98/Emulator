@@ -14,8 +14,9 @@ import {
   CTL_SLOTS,
   Ctl,
   PREFERRED_SAMPLE_RATE,
-  SHARED_LAYOUT,
+  sharedLayout,
 } from '../core/protocol';
+import type { SystemSpec } from '../core/systems';
 
 /** Safari 16.4+ exposes this; other browsers do not, and do not need it. */
 interface AudioSessionCapable {
@@ -38,7 +39,7 @@ export class AudioOutput {
    * Builds the audio graph. Safe to call before any user gesture: the context
    * simply stays suspended until `resume()`.
    */
-  async init(shared: SharedArrayBuffer | null, baseUrl: string): Promise<void> {
+  async init(shared: SharedArrayBuffer | null, baseUrl: string, spec: SystemSpec): Promise<void> {
     if (this.context) return;
 
     const session = navigator as Navigator & AudioSessionCapable;
@@ -66,11 +67,13 @@ export class AudioOutput {
       outputChannelCount: [AUDIO_CHANNELS],
       processorOptions: {
         shared,
+        ...(() => {
+          const layout = sharedLayout(spec);
+          return { ctlOffset: layout.ctlOffset, audioOffset: layout.audioOffset };
+        })(),
         ringFrames: AUDIO_RING_FRAMES,
         channels: AUDIO_CHANNELS,
-        ctlOffset: SHARED_LAYOUT.ctlOffset,
         ctlSlots: CTL_SLOTS,
-        audioOffset: SHARED_LAYOUT.audioOffset,
         ctlAudioRead: Ctl.AUDIO_READ,
         ctlAudioWrite: Ctl.AUDIO_WRITE,
       },

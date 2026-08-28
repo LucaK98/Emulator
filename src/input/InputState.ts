@@ -6,7 +6,9 @@
  * core. Without that, lifting a finger would clear a key held on a keyboard.
  */
 
-import { Button, type ButtonName } from '../core/protocol';
+import { bit, type ButtonName } from '../core/systems';
+
+export { bit };
 
 export type InputSource = 'touch' | 'keyboard' | 'gamepad';
 
@@ -39,10 +41,6 @@ export class InputState {
   }
 }
 
-export function bit(name: ButtonName): number {
-  return 1 << Button[name];
-}
-
 /** Desktop keys, for developing without a phone in hand. */
 export const KEYBOARD_MAP: Record<string, ButtonName> = {
   ArrowRight: 'Right',
@@ -55,6 +53,8 @@ export const KEYBOARD_MAP: Record<string, ButtonName> = {
   Enter: 'Start',
   ShiftRight: 'Select',
   ShiftLeft: 'Select',
+  KeyA: 'L',
+  KeyS: 'R',
 };
 
 /** Attaches keyboard handling; returns a disposer. */

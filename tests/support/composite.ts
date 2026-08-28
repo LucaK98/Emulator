@@ -11,7 +11,7 @@
 
 import type { GbScene } from '../../src/render/ppu/decode';
 import { ATLAS_TILES_PER_ROW, ATLAS_WIDTH } from '../../src/render/ppu/decode';
-import { SCREEN_HEIGHT, SCREEN_WIDTH } from '../../src/core/protocol';
+import { GB_SCREEN_HEIGHT, GB_SCREEN_WIDTH } from '../../src/core/protocol';
 
 /** Objects the hardware can draw on one scanline. */
 const SPRITES_PER_LINE = 10;
@@ -60,10 +60,10 @@ function backgroundIndexAt(scene: GbScene, x: number, y: number): { index: numbe
 }
 
 export function compositeScene(scene: GbScene): Uint32Array {
-  const out = new Uint32Array(SCREEN_WIDTH * SCREEN_HEIGHT);
+  const out = new Uint32Array(GB_SCREEN_WIDTH * GB_SCREEN_HEIGHT);
   const sprites = scene.sprites;
 
-  for (let y = 0; y < SCREEN_HEIGHT; y++) {
+  for (let y = 0; y < GB_SCREEN_HEIGHT; y++) {
     // Hardware scans OAM in order and keeps the first ten objects on this line.
     const onLine: number[] = [];
     for (let i = 0; i < sprites.count && onLine.length < SPRITES_PER_LINE; i++) {
@@ -73,7 +73,7 @@ export function compositeScene(scene: GbScene): Uint32Array {
     // On DMG the leftmost object wins, ties broken by OAM order.
     onLine.sort((a, b) => sprites.x[a]! - sprites.x[b]! || a - b);
 
-    for (let x = 0; x < SCREEN_WIDTH; x++) {
+    for (let x = 0; x < GB_SCREEN_WIDTH; x++) {
       const bg = backgroundIndexAt(scene, x, y);
       let colour = scene.bgPalettes[bg.palette * 4 + bg.index] ?? 0;
 
@@ -97,7 +97,7 @@ export function compositeScene(scene: GbScene): Uint32Array {
         break; // first (highest priority) opaque object wins
       }
 
-      out[y * SCREEN_WIDTH + x] = colour;
+      out[y * GB_SCREEN_WIDTH + x] = colour;
     }
   }
 

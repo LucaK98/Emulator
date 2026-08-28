@@ -13,10 +13,12 @@
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { bit, type InputState } from '../input/InputState';
-import type { ButtonName } from '../core/protocol';
+import type { ButtonName } from '../core/systems';
 
 interface Props {
   input: InputState;
+  /** Buttons this console has; the shoulder pair only exists on the GBA. */
+  buttons: ButtonName[];
   /** Called when the menu button is tapped. */
   onMenu: () => void;
   /**
@@ -40,13 +42,16 @@ const DPAD_REACH = 1.75;
 /** Extra hit radius around the face buttons, in pixels. */
 const BUTTON_SLOP = 10;
 
-export function TouchControls({ input, onMenu, disabled = false }: Props) {
+export function TouchControls({ input, buttons, onMenu, disabled = false }: Props) {
+  const hasShoulders = buttons.includes('L');
   const surfaceRef = useRef<HTMLDivElement>(null);
   const dpadRef = useRef<HTMLDivElement>(null);
   const aRef = useRef<HTMLButtonElement>(null);
   const bRef = useRef<HTMLButtonElement>(null);
   const startRef = useRef<HTMLButtonElement>(null);
   const selectRef = useRef<HTMLButtonElement>(null);
+  const shoulderLeftRef = useRef<HTMLButtonElement>(null);
+  const shoulderRightRef = useRef<HTMLButtonElement>(null);
 
   const [pressed, setPressed] = useState(0);
 
@@ -70,6 +75,8 @@ export function TouchControls({ input, onMenu, disabled = false }: Props) {
         b: circleOf(bRef.current, BUTTON_SLOP),
         start: rectOf(startRef.current),
         select: rectOf(selectRef.current),
+        shoulderLeft: rectOf(shoulderLeftRef.current),
+        shoulderRight: rectOf(shoulderRightRef.current),
       };
     }
 
@@ -79,7 +86,7 @@ export function TouchControls({ input, onMenu, disabled = false }: Props) {
 
     function maskFor(x: number, y: number): number {
       let mask = 0;
-      const { dpad, a, b, start, select } = geometry;
+      const { dpad, a, b, start, select, shoulderLeft, shoulderRight } = geometry;
 
       if (dpad) {
         const dx = x - dpad.cx;
@@ -108,6 +115,8 @@ export function TouchControls({ input, onMenu, disabled = false }: Props) {
       if (b && inCircle(b, x, y)) mask |= bit('B');
       if (start && inRect(start, x, y)) mask |= bit('Start');
       if (select && inRect(select, x, y)) mask |= bit('Select');
+      if (shoulderLeft && inRect(shoulderLeft, x, y)) mask |= bit('L');
+      if (shoulderRight && inRect(shoulderRight, x, y)) mask |= bit('R');
       return mask;
     }
 
@@ -155,12 +164,23 @@ export function TouchControls({ input, onMenu, disabled = false }: Props) {
       window.removeEventListener('orientationchange', remeasure);
       input.set('touch', 0);
     };
-  }, [input, disabled]);
+  }, [input, disabled, hasShoulders]);
 
   const on = (name: ButtonName) => ((pressed & bit(name)) !== 0 ? ' is-pressed' : '');
 
   return (
     <div class="touch-surface no-select" ref={surfaceRef} data-disabled={disabled || undefined}>
+      {hasShoulders && (
+        <div class="shoulders">
+          <button type="button" class={`shoulder${on('L')}`} ref={shoulderLeftRef} aria-label="L">
+            L
+          </button>
+          <button type="button" class={`shoulder${on('R')}`} ref={shoulderRightRef} aria-label="R">
+            R
+          </button>
+        </div>
+      )}
+
       <div class="dpad" ref={dpadRef}>
         <span class={`dpad-arm dpad-vertical${on('Up') || on('Down') ? ' is-pressed' : ''}`} />
         <span class={`dpad-arm dpad-horizontal${on('Left') || on('Right') ? ' is-pressed' : ''}`} />

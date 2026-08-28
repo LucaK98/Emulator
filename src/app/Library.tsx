@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { importRom, listGames, deleteGame, type GameEntry } from '../storage/library';
+import { ALL_ROM_EXTENSIONS, SYSTEMS } from '../core/systems';
 import { formatBytes, type StorageStatus } from '../storage/persist';
 import { hasSharedArrayBuffer, type IsolationState } from '../platform/isolation';
 
@@ -33,11 +34,9 @@ export function Library({ isolation, storage, onPlay }: Props) {
     const messages: string[] = [];
     for (const file of files) {
       try {
-        const { entry, info, alreadyPresent } = await importRom(file);
+        const { entry, alreadyPresent, warning } = await importRom(file);
         if (alreadyPresent) messages.push(`${entry.title} war schon da`);
-        else if (!info.headerChecksumValid) {
-          messages.push(`${entry.title} hinzugefügt — Prüfsumme stimmt nicht, evtl. defekter Dump`);
-        }
+        else if (warning) messages.push(`${entry.title} hinzugefügt — ${warning}`);
         else messages.push(`${entry.title} hinzugefügt`);
       }
       catch (problem) {
@@ -71,7 +70,7 @@ export function Library({ isolation, storage, onPlay }: Props) {
       <input
         ref={fileRef}
         type="file"
-        accept=".gb,.gbc,application/octet-stream"
+        accept={`${ALL_ROM_EXTENSIONS.join(',')},application/octet-stream`}
         multiple
         hidden
         onChange={(event) => void onFiles(event)}
@@ -87,8 +86,8 @@ export function Library({ isolation, storage, onPlay }: Props) {
         <section class="empty-state">
           <p class="lede">Noch keine Spiele in der Bibliothek.</p>
           <p class="muted">
-            Tippe auf „Spiel hinzufügen" und wähle eine .gb- oder .gbc-Datei aus der
-            Dateien-App. Sie bleibt auf diesem Gerät.
+            Tippe auf „Spiel hinzufügen" und wähle eine {ALL_ROM_EXTENSIONS.join(', ')}-Datei
+            aus der Dateien-App. Sie bleibt auf diesem Gerät.
           </p>
         </section>
       ) : (
@@ -105,7 +104,7 @@ export function Library({ isolation, storage, onPlay }: Props) {
                 </span>
                 <span class="game-title">{game.title}</span>
                 <span class="game-meta">
-                  {game.colorCapable ? 'Game Boy Color' : 'Game Boy'} · {formatBytes(game.size)}
+                  {describeSystem(game)} · {formatBytes(game.size)}
                 </span>
               </button>
               <button
@@ -156,6 +155,12 @@ export function Library({ isolation, storage, onPlay }: Props) {
       )}
     </main>
   );
+}
+
+/** Game Boy Color is worth distinguishing; the rest is just the system name. */
+function describeSystem(game: GameEntry): string {
+  if (game.system === 'gb') return game.colorCapable ? 'Game Boy Color' : 'Game Boy';
+  return SYSTEMS[game.system].label;
 }
 
 function Row({

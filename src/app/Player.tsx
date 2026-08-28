@@ -20,6 +20,7 @@ import { DepthControls } from './DepthControls';
 import { InputState, attachKeyboard } from '../input/InputState';
 import { TouchControls } from './TouchControls';
 import { frameToDataUrl } from './frameThumbnail';
+import { SYSTEMS } from '../core/systems';
 import {
   AUTO_SLOT,
   getRom,
@@ -58,6 +59,7 @@ interface Props {
 type Phase = 'loading' | 'ready' | 'running' | 'paused' | 'error';
 
 export function Player({ game, baseUrl, onExit }: Props) {
+  const spec = SYSTEMS[game.system];
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const coreRef = useRef<CoreClient | null>(null);
   const inputRef = useRef(new InputState());
@@ -74,7 +76,8 @@ export function Player({ game, baseUrl, onExit }: Props) {
   const [depthStats, setDepthStats] = useState({ raised: 0, learning: false });
   // Depth rendering reads PPU state out of shared memory each frame; without
   // cross-origin isolation there is no shared memory to read.
-  const depthAvailable = typeof SharedArrayBuffer !== 'undefined' && crossOriginIsolated;
+  const depthAvailable =
+    spec.supportsDepth && typeof SharedArrayBuffer !== 'undefined' && crossOriginIsolated;
 
   /* --- Save helpers (stable across renders) ----------------------------- */
 
@@ -89,12 +92,12 @@ export function Player({ game, baseUrl, onExit }: Props) {
     const core = coreRef.current;
     if (!core) return;
     const frame = core.currentFrame();
-    const thumbnail = frame ? frameToDataUrl(frame) : null;
+    const thumbnail = frame ? frameToDataUrl(frame, spec) : null;
     const data = await core.readState();
     if (!data) return;
     await putState(game.id, AUTO_SLOT, data, thumbnail);
     await updateGame(game.id, { lastPlayedAt: Date.now(), thumbnail });
-  }, [game.id]);
+  }, [game.id, spec]);
 
   /* --- Boot ------------------------------------------------------------- */
 
@@ -102,6 +105,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
     let cancelled = false;
     const core = new CoreClient({
       baseUrl,
+      system: spec,
       onError: (message) => {
         setError(message);
         setPhase('error');
@@ -147,7 +151,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
       coreRef.current = null;
       void core.destroy();
     };
-  }, [game.id, game.model, game.hasBattery, baseUrl]);
+  }, [game.id, game.model, game.hasBattery, baseUrl, spec]);
 
   /* --- Renderer --------------------------------------------------------- */
 
@@ -156,7 +160,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
     if (!canvas) return;
 
     const useDepth = depthMode && depthAvailable;
-    const renderer = useDepth ? Depth25DRenderer.create(canvas) : GLRenderer.create(canvas);
+    const renderer = useDepth ? Depth25DRenderer.create(canvas) : GLRenderer.create(canvas, spec);
     if (!renderer) {
       setError('WebGL2 wird von diesem Browser nicht unterstützt');
       setPhase('error');
@@ -174,7 +178,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
     };
     // depthSettings is applied through the ref below, not by rebuilding.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [depthMode, depthAvailable, phase === 'error']);
+  }, [depthMode, depthAvailable, spec, phase === 'error']);
 
   // Slider moves take effect immediately without touching the GL objects.
   useEffect(() => {
@@ -295,8 +299,8 @@ export function Player({ game, baseUrl, onExit }: Props) {
           key={depthMode && depthAvailable ? 'depth' : 'flat'}
           ref={canvasRef}
           class="player-canvas"
-          width={160}
-          height={144}
+          width={spec.width}
+          height={spec.height}
         />
 
         {phase === 'loading' && <Overlay><p class="muted">Lädt …</p></Overlay>}
@@ -339,7 +343,11 @@ export function Player({ game, baseUrl, onExit }: Props) {
             <DepthControls
               enabled={depthMode}
               available={depthAvailable}
-              unavailableReason="Braucht Cross-Origin-Isolation. Starte die App vom Home-Bildschirm."
+              unavailableReason={
+                spec.supportsDepth
+                  ? 'Braucht Cross-Origin-Isolation. Starte die App vom Home-Bildschirm.'
+                  : `Für ${spec.label} noch nicht gebaut — der Tiefen-Renderer liest die Game-Boy-PPU.`
+              }
               settings={depthSettings}
               raisedTiles={depthStats.raised}
               learning={depthStats.learning}
@@ -354,6 +362,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
 
       <TouchControls
         input={inputRef.current}
+        buttons={spec.buttons}
         onMenu={() => void openMenu()}
         disabled={phase !== 'running' || menuOpen}
       />

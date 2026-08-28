@@ -4,14 +4,14 @@
  * blurry postage stamp.
  */
 
-import { SCREEN_HEIGHT, SCREEN_WIDTH } from '../core/protocol';
+import type { SystemSpec } from '../core/systems';
 
 const SCALE = 2;
 
-export function frameToDataUrl(pixels: Uint32Array): string | null {
+export function frameToDataUrl(pixels: Uint32Array, spec: SystemSpec): string | null {
   const source = document.createElement('canvas');
-  source.width = SCREEN_WIDTH;
-  source.height = SCREEN_HEIGHT;
+  source.width = spec.width;
+  source.height = spec.height;
   const sourceCtx = source.getContext('2d');
   if (!sourceCtx) return null;
 
@@ -19,11 +19,11 @@ export function frameToDataUrl(pixels: Uint32Array): string | null {
   // Uint8ClampedArray from a typed array copies into a fresh, unshared buffer.
   const bytes = new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength);
   const rgba = new Uint8ClampedArray(bytes);
-  sourceCtx.putImageData(new ImageData(rgba, SCREEN_WIDTH, SCREEN_HEIGHT), 0, 0);
+  sourceCtx.putImageData(new ImageData(rgba, spec.width, spec.height), 0, 0);
 
   const scaled = document.createElement('canvas');
-  scaled.width = SCREEN_WIDTH * SCALE;
-  scaled.height = SCREEN_HEIGHT * SCALE;
+  scaled.width = spec.width * SCALE;
+  scaled.height = spec.height * SCALE;
   const scaledCtx = scaled.getContext('2d');
   if (!scaledCtx) return null;
   scaledCtx.imageSmoothingEnabled = false;

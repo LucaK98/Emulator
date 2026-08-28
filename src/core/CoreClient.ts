@@ -11,16 +11,19 @@ import { AudioOutput } from '../audio/AudioOutput';
 import type { SceneRenderer } from '../render/SceneRenderer';
 import {
   Ctl,
-  FRAME_PIXELS,
   createSharedBuffer,
+  sharedLayout,
   viewShared,
   type FromWorker,
   type SharedViews,
+  type SystemSpec,
   type ToWorker,
 } from './protocol';
 
 export interface CoreClientOptions {
   baseUrl: string;
+  /** Which console to emulate; picks the worker, the core and the layout. */
+  system: SystemSpec;
   /** Called when the worker reports a fatal problem. */
   onError?: (message: string) => void;
   /** Called with frames-per-second roughly once a second. */
@@ -56,10 +59,18 @@ export class CoreClient {
   frameRate = 59.727;
 
   constructor(private readonly options: CoreClientOptions) {
-    this.worker = new Worker(new URL('../cores/gb/gbWorker.ts', import.meta.url), {
-      type: 'module',
-      name: 'gb-core',
-    });
+    // Both workers are declared statically so the bundler can find and emit
+    // them; a computed URL would silently produce a missing chunk.
+    this.worker =
+      options.system.id === 'gba'
+        ? new Worker(new URL('../cores/gba/worker.ts', import.meta.url), {
+            type: 'module',
+            name: 'gba-core',
+          })
+        : new Worker(new URL('../cores/gb/worker.ts', import.meta.url), {
+            type: 'module',
+            name: 'gb-core',
+          });
     this.worker.onmessage = (event: MessageEvent<FromWorker>) => this.onMessage(event.data);
 
     this.readyPromise = new Promise<boolean>((resolve) => {
@@ -72,18 +83,20 @@ export class CoreClient {
   /** Boots the worker, the core module and the audio graph. */
   async init(): Promise<void> {
     // SharedArrayBuffer only exists when the document is cross-origin isolated.
+    const spec = this.options.system;
     if (typeof SharedArrayBuffer !== 'undefined' && crossOriginIsolated) {
-      this.shared = createSharedBuffer();
-      this.views = viewShared(this.shared);
+      this.shared = createSharedBuffer(spec);
+      this.views = viewShared(this.shared, spec);
     }
 
-    await this.audio.init(this.shared, this.options.baseUrl);
+    await this.audio.init(this.shared, this.options.baseUrl, spec);
 
     this.send({
       type: 'init',
       shared: this.shared,
-      coreUrl: `${this.options.baseUrl}cores/sameboy.js`,
+      coreUrl: `${this.options.baseUrl}cores/${spec.id === 'gba' ? 'mgba' : 'sameboy'}.js`,
       sampleRate: this.audio.sampleRate,
+      system: spec.id,
     });
 
     this.usingShared = await this.readyPromise;
@@ -276,7 +289,7 @@ export class CoreClient {
       this.lastSeq = seq;
       const slot = Atomics.load(this.views.ctl, Ctl.FRAME_SLOT);
       const pixels = this.views.frames[slot];
-      if (!pixels || pixels.length !== FRAME_PIXELS) return null;
+      if (!pixels || pixels.length !== sharedLayout(this.options.system).framePixels) return null;
       const ppu = this.renderer?.needsPpuState ? (this.views.ppu[slot] ?? null) : null;
       return { pixels, ppu };
     }

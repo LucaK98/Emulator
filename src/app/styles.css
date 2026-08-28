@@ -412,7 +412,10 @@ h2 {
   z-index: 1;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-areas: 'dpad system face';
+  /* The shoulder row exists on every system; it is simply empty without one. */
+  grid-template-areas:
+    'shoulders shoulders shoulders'
+    'dpad      system    face';
   align-items: center;
   gap: 0.5rem;
   padding:
@@ -630,4 +633,55 @@ h2 {
   /* The default control ignores the dark palette on iOS. */
   accent-color: var(--accent);
   height: 28px;
+}
+
+/* --- Shoulder buttons (Game Boy Advance) -------------------------------- */
+
+.shoulders {
+  grid-area: shoulders;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+}
+
+.shoulder {
+  min-width: 4.5rem;
+  min-height: 34px;
+  padding: 0 1rem;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: background-color 60ms linear;
+}
+
+/* Angled towards the outside, the way the real shoulder buttons sit. */
+.shoulder:first-child {
+  border-radius: 0.5rem 1.25rem 1.25rem 0.5rem;
+}
+
+.shoulder:last-child {
+  border-radius: 1.25rem 0.5rem 0.5rem 1.25rem;
+}
+
+.shoulder.is-pressed {
+  background: var(--accent);
+  color: #0d1207;
+}
+
+@media (orientation: landscape) and (max-height: 560px) {
+  .shoulders {
+    position: absolute;
+    top: calc(var(--safe-top) + 0.75rem);
+    left: calc(var(--safe-left) + 0.9rem);
+    right: calc(var(--safe-right) + 0.9rem);
+  }
+
+  /* Where a shoulder row exists, the pill column starts below it instead of
+     underneath the L button. */
+  .shoulders ~ .system-buttons {
+    top: calc(var(--safe-top) + 3.6rem);
+  }
 }

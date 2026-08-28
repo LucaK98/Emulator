@@ -2,6 +2,8 @@
 
 Ein privater Emulator für **Game Boy, Game Boy Color, Game Boy Advance und Nintendo DS**, gebaut als installierbare Web-App (PWA) für das iPhone. ROMs und Spielstände bleiben ausschließlich auf dem Gerät.
 
+Game Boy, Game Boy Color und Game Boy Advance laufen; der Nintendo DS steht noch aus.
+
 Das besondere Feature ist ein **2.5D-Renderer für Game-Boy-Spiele**: der Core gibt die PPU-Ebenen getrennt aus, der Renderer baut daraus eine echte 3D-Szene mit Kamera, Tiefe und Schatten.
 
 > **3DS wird nicht unterstützt.** Es gibt keinen funktionierenden WebAssembly-Port von Citra/Azahar, und 3DS-Emulation braucht JIT plus eine GPU-Pipeline, die im Browser nicht erreichbar ist. Auf dem iPhone läuft 3DS heute nur über nativ sideloadete Apps.
@@ -14,7 +16,7 @@ Das besondere Feature ist ein **2.5D-Renderer für Game-Boy-Spiele**: der Core g
 | 1 | Game Boy / Color spielbar (SameBoy-Core, Renderer, Audio, Touch-Controls) | ✅ fertig |
 | 2 | Savestate-Slots, Export/Import, Controller-Support | offen |
 | 3 | 2.5D-Renderer für Game Boy / Color | ✅ fertig |
-| 4 | Game Boy Advance (mGBA) | offen |
+| 4 | Game Boy Advance (mGBA) | ✅ fertig |
 | 5 | Nintendo DS (melonDS) | offen |
 | 6 | Feinschliff: Rewind, Fast-Forward, Shader | offen |
 
@@ -28,19 +30,23 @@ Schritt 2 ist keine Kür. Safari löscht Website-Daten nach sieben Tagen ohne Nu
 
 ## Wie es funktioniert
 
-**Cores.** Game Boy und Game Boy Color laufen auf [SameBoy](https://github.com/LIJI32/SameBoy) (Submodul unter `vendor/sameboy`, auf `v1.0.3` gepinnt), übersetzt nach WebAssembly. Der Wrapper in `native/gb/sameboy_wasm.c` hält Frame- und Audiopuffer als statischen Speicher, damit die JavaScript-Seite direkt aus dem WASM-Heap liest. SameBoys eigene Boot-ROMs werden aus dem Quelltext assembliert und ins Modul eingebettet.
+**Cores.** Game Boy und Game Boy Color laufen auf [SameBoy](https://github.com/LIJI32/SameBoy) (`v1.0.3`), der Game Boy Advance auf [mGBA](https://github.com/mgba-emu/mgba) (`0.10.5`) — beide als Submodul unter `vendor/`, nach WebAssembly übersetzt und über ihre öffentliche API angesprochen, also ohne Patch. Die Wrapper in `native/gb/` und `native/gba/` halten Frame- und Audiopuffer als statischen Speicher, damit die JavaScript-Seite direkt aus dem WASM-Heap liest. SameBoys eigene Boot-ROMs werden aus dem Quelltext assembliert und ins Modul eingebettet.
+
+Beide Wrapper bieten dieselbe Schnittstelle an (ein Frame pro Aufruf, Puffer als Zeiger in den Heap, Speicherdaten als flache Bytes), deshalb gibt es die Taktung, den Shared-Memory-Transport und die Nachrichtenbehandlung nur einmal — in `src/cores/runtime.ts`. Was sich zwischen den Systemen unterscheidet, steht als Spezifikation in `src/core/systems.ts`: Bildgröße, Tastensatz und ob der Core den Tiefen-Renderer bedienen kann.
 
 **Threads.** Ein Worker besitzt den Core und die Uhr. Bild und Ton wandern über einen `SharedArrayBuffer`: der Renderer liest die Pixel, die der Worker hineingeschrieben hat, und das AudioWorklet leert den Ringpuffer auf dem Audio-Thread, ohne den Main-Thread zu wecken.
 
 **Taktung.** Das Audiogerät ist die Uhr. Ein Frame wird emuliert, wenn im Ringpuffer Platz für den Ton ist, den er erzeugt — dadurch läuft die Emulation ohne Drift synchron zur Ausgabe. Wenn nichts abgespielt wird (stummes Gerät, angehaltener AudioContext, Headless-Browser), erkennt der Worker den stehenden Ring, verwirft den Rückstau und taktet auf die Wanduhr um: das Spiel läuft dann still weiter, statt einzufrieren.
 
-**2.5D.** Der Renderer arbeitet nicht mit dem fertigen Bild, sondern baut die Szene aus dem PPU-Zustand neu auf: Der Hintergrund wird ein Raster aus Blöcken, jeder Hardware-Sprite ein aufrecht stehendes Billboard mit Schatten, und die Fenster-Ebene bleibt flach obenauf — dort liegen Textboxen und Statusleisten, die gehören auf die Scheibe, nicht in die Welt. Die Farben kommen aus den Paletten, die der Core ohnehin schon auflöst, deshalb sieht eine Szene außer der Perspektive genauso aus wie flach.
+**2.5D (nur Game Boy / Color).** Der Renderer arbeitet nicht mit dem fertigen Bild, sondern baut die Szene aus dem PPU-Zustand neu auf: Der Hintergrund wird ein Raster aus Blöcken, jeder Hardware-Sprite ein aufrecht stehendes Billboard mit Schatten, und die Fenster-Ebene bleibt flach obenauf — dort liegen Textboxen und Statusleisten, die gehören auf die Scheibe, nicht in die Welt. Die Farben kommen aus den Paletten, die der Core ohnehin schon auflöst, deshalb sieht eine Szene außer der Perspektive genauso aus wie flach.
 
 **Wie die Höhen entstehen.** Nirgendwo in einem Game-Boy-Modul steht, wie hoch eine Kachel ist, und der Sinn des Features ist ja, dass es ohne spielspezifische Tabellen funktioniert. Also wird die Höhe aus etwas abgeleitet, das die Hardware sehr wohl verrät: wo Figuren sein können. Eine Kachel, auf der schon jemand stand, ist Boden — durch einen Baum läuft man nicht. Eine Kachel, die ständig zu sehen ist, auf der aber nie jemand steht, ist Wand, Baum, Klippe oder Wasser. Dieses eine Signal trennt eine Oberwelt von selbst in Boden und Kulisse.
 
 Damit das nicht in Menüs und Kämpfen losgeht — die sind voll von Kacheln, auf denen niemand steht — lernt das Modell nur, solange die Karte tatsächlich scrollt und Sprites da sind. Ein einmaliges Verschieben der Scroll-Register beim Bildaufbau reicht nicht; es zählt anhaltende Bewegung. Wissen verfällt langsam, damit eine Höhle neu gelernt wird statt alte Höhen mitzuschleppen, und Höhen ändern sich schrittweise, damit nichts springt.
 
 Der Effekt ist nicht in jedem Spiel gleich stark, deshalb liegen Ein/Aus, Kamerawinkel, Höhe, Aufrichtung und Schatten als Regler im Pausenmenü, und der flache Modus ist immer einen Tipp entfernt.
+
+Für den GBA gibt es das noch nicht: Der Tiefen-Renderer liest die Game-Boy-PPU mit ihrer einen Hintergrundebene und 8×8-Kacheln. Der GBA hat vier Ebenen mit eigenen Prioritäten, Rotation und Skalierung — die Idee überträgt sich, aber es ist eigene Arbeit. Das Pausenmenü sagt das an der Stelle, wo sonst der Schalter wäre.
 
 **Speichern.** Zwei Mechanismen laufen parallel. Batteriegepufferter Cartridge-RAM wird alle zwei Sekunden mit dem Gespeicherten verglichen und nur bei Änderung geschrieben. Zusätzlich entsteht bei `pagehide` und `visibilitychange` ein automatischer Savestate — das ist der letzte Moment, den iOS zusichert, bevor es eine App im Hintergrund abräumt. Beim erneuten Öffnen wird dieser Stand wiederhergestellt.
 
@@ -52,10 +58,11 @@ Die fertigen WASM-Cores liegen unter `public/cores/` **im Repo**. Weder CI noch 
 git submodule update --init --recursive
 source /pfad/zu/emsdk/emsdk_env.sh        # Emscripten
 RGBDS_DIR=/pfad/zu/rgbds \
-  ./scripts/build-cores/build-sameboy.sh  # baut Boot-ROMs + sameboy.wasm
+  ./scripts/build-cores/build-sameboy.sh  # Boot-ROMs + sameboy.wasm
+./scripts/build-cores/build-mgba.sh       # mgba.wasm
 ```
 
-[RGBDS](https://github.com/gbdev/rgbds) wird gebraucht, weil SameBoys Boot-ROMs Assembler-Quelltext sind.
+[RGBDS](https://github.com/gbdev/rgbds) wird nur für den Game-Boy-Core gebraucht, weil SameBoys Boot-ROMs Assembler-Quelltext sind. Der mGBA-Build läuft über dessen eigenes CMake; zwei Emscripten-Eigenheiten sind im Skript dokumentiert.
 
 ## Entwicklung
 
@@ -72,11 +79,12 @@ npm run gen:icons    # PWA-Icons neu erzeugen (stdlib-Python, kein Pillow nötig
 
 Die Unit-Tests fahren den gebauten Core direkt in Node:
 
-- **Core-Genauigkeit** gegen blarggs Hardware-Test-ROMs (`cpu_instrs`, `instr_timing`) plus einen Savestate-Round-Trip.
+- **Game-Boy-Genauigkeit** gegen blarggs Hardware-Test-ROMs (`cpu_instrs`, `instr_timing`) plus einen Savestate-Round-Trip.
+- **Game-Boy-Advance-Verhalten** gegen jsmolkas ARM- und THUMB-Suiten: Bildgeometrie, Bildrate, Audiorate, Savestate-Round-Trip und die Erkennung, ob ein Modul überhaupt Speicher hat. Zu den Suiten selbst siehe `tests/roms/README.md` — mGBA besteht sie nicht vollständig, das sind bekannte Genauigkeitslücken des Cores und keine Wrapper-Fehler.
 - **Ebenen-Dekoder** gegen den Emulator selbst: Die aus VRAM und OAM zurückgewonnenen Ebenen werden wieder flach zusammengesetzt und müssen das Bild des Cores **pixelgenau** treffen. Dafür gibt es `tests/roms/ppu-probe.gb`, das gezielt signierte Kachel-Adressierung, versetztes Scrolling, ein Fenster und 8×16-Sprites mit Flips und Priorität benutzt.
 - **Höhenmodell** gegen `tests/roms/overworld-probe.gb`, eine scrollende Karte mit einer Figur, die einen Korridor aus Bodenkacheln entlangläuft. Im ROM steht nirgends, welche Kachel Kulisse ist — der Test verlangt, dass genau die Kulisse steht und der Boden flach bleibt.
 
-Die Browser-Tests importieren eine ROM, spielen sie, beenden und laden neu (der Spielstand muss den Reload überleben) und schalten 2.5D ein, prüfen dass sich das Bild ändert und dass das Modell die richtige Kachel anhebt.
+Die Browser-Tests importieren eine ROM, spielen sie, beenden und laden neu (der Spielstand muss den Reload überleben), schalten 2.5D ein und prüfen, dass sich das Bild ändert und das Modell die richtige Kachel anhebt. Für den GBA prüfen sie zusätzlich, dass das Bild im richtigen Seitenverhältnis gezeichnet wird und die Schultertasten erscheinen.
 
 Läuft in einer Umgebung bereits ein Chromium, kann Playwright ihn statt eines eigenen Downloads verwenden:
 

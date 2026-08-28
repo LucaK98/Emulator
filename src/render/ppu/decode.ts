@@ -10,7 +10,7 @@
  * runs sixty times a second.
  */
 
-import { PPU_OFFSETS, Ppu, PpuHeader, SCREEN_HEIGHT, SCREEN_WIDTH } from '../../core/protocol';
+import { PPU_OFFSETS, Ppu, PpuHeader, GB_SCREEN_HEIGHT, GB_SCREEN_WIDTH } from '../../core/protocol';
 
 /** Tiles addressable across both VRAM banks. */
 export const MAX_TILES = 768;
@@ -112,8 +112,8 @@ export class PpuDecoder {
     windowY: 0,
     scrollX: 0,
     scrollY: 0,
-    scrollXByLine: new Uint8Array(SCREEN_HEIGHT),
-    scrollYByLine: new Uint8Array(SCREEN_HEIGHT),
+    scrollXByLine: new Uint8Array(GB_SCREEN_HEIGHT),
+    scrollYByLine: new Uint8Array(GB_SCREEN_HEIGHT),
     tileAtlas: new Uint8Array(ATLAS_WIDTH * ATLAS_HEIGHT),
     bgPalettes: new Uint32Array(32),
     objPalettes: new Uint32Array(32),
@@ -151,7 +151,7 @@ export class PpuDecoder {
     scene.scrollX = scanlines[1] ?? 0;
     scene.scrollY = scanlines[2] ?? 0;
 
-    for (let line = 0; line < SCREEN_HEIGHT; line++) {
+    for (let line = 0; line < GB_SCREEN_HEIGHT; line++) {
       const base = line * Ppu.SCANLINE_RECORD_BYTES;
       scene.scrollXByLine[line] = scanlines[base + 1] ?? 0;
       scene.scrollYByLine[line] = scanlines[base + 2] ?? 0;
@@ -160,7 +160,7 @@ export class PpuDecoder {
     const windowX = (scanlines[3] ?? 0) - 7;
     const windowY = scanlines[4] ?? 0;
     scene.windowVisible =
-      (lcdc & LCDC.WINDOW_ENABLE) !== 0 && windowY < SCREEN_HEIGHT && windowX < SCREEN_WIDTH;
+      (lcdc & LCDC.WINDOW_ENABLE) !== 0 && windowY < GB_SCREEN_HEIGHT && windowX < GB_SCREEN_WIDTH;
     scene.windowX = windowX;
     scene.windowY = windowY;
 
@@ -344,8 +344,8 @@ function decodeWindow(
   originY: number,
   cells: CellArrays,
 ): void {
-  const cols = Math.min(VIEW_COLS, Math.ceil((SCREEN_WIDTH - originX) / 8) + 1);
-  const rows = Math.min(VIEW_ROWS, Math.ceil((SCREEN_HEIGHT - originY) / 8) + 1);
+  const cols = Math.min(VIEW_COLS, Math.ceil((GB_SCREEN_WIDTH - originX) / 8) + 1);
+  const rows = Math.min(VIEW_ROWS, Math.ceil((GB_SCREEN_HEIGHT - originY) / 8) + 1);
 
   let count = 0;
   for (let row = 0; row < rows; row++) {
@@ -386,7 +386,7 @@ function decodeSprites(
     const base = entry * 4;
     const y = (oam[base] ?? 0) - 16;
     const x = (oam[base + 1] ?? 0) - 8;
-    if (y <= -height || y >= SCREEN_HEIGHT || x <= -8 || x >= SCREEN_WIDTH) continue;
+    if (y <= -height || y >= GB_SCREEN_HEIGHT || x <= -8 || x >= GB_SCREEN_WIDTH) continue;
 
     const rawTile = oam[base + 2] ?? 0;
     const attributes = oam[base + 3] ?? 0;
