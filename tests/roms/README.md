@@ -44,6 +44,14 @@ rgbasm -o probe.o src/ppu-probe.asm && rgblink -o ppu-probe.gb probe.o && rgbfix
 | `ppu-probe.gb` | The layer decoder reads signed tile addressing, an off-grid scroll, a window at a non-zero origin, and 8x16 objects with flips and priority — checked by flattening the decoded layers and comparing to the emulator's own output. |
 | `overworld-probe.gb` | The height model separates ground from scenery with no per-game knowledge: a character walks a corridor of ground tiles past scattered scenery, and only the scenery may rise. |
 | `nds-probe.nds` | Both DS screens are composed correctly and both arrangements work: a colour gradient on the engine A screen, a flat backdrop on the engine B screen, so the two can never be confused. |
+| `gba-farcart-probe.gba` | A GBA cartridge stays mapped over its whole length. mGBA does not copy a ROM, so the buffer handed to it has to outlive the load call; this probe stores four colours 4, 8, 12 and nearly 16 MiB in and paints them as four bands, so a cartridge that stops being readable shows up as the wrong picture rather than as nothing at all. |
+
+`gba-farcart-probe.gba` is assembled and packed by `scripts/build-gba-probe.py`,
+which needs the same `arm-none-eabi-gcc`. It is 16 MiB of mostly 0xFF, which is
+what unused cartridge space reads as; git stores that in a few kilobytes. Its
+header carries no Nintendo logo — that is what a real BIOS checks before
+handing over control, and it is not ours to reproduce, so this is an emulator
+test ROM rather than something a console would boot.
 
 `nds-probe.nds` is assembled from `src/nds-probe-arm9.s` and
 `src/nds-probe-arm7.s` and packed by `scripts/build-nds-probe.py`, which also

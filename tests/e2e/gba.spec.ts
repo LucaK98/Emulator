@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 
 const GBA_ROM = fileURLToPath(new URL('../roms/arm.gba', import.meta.url));
+const FAR_CART_ROM = fileURLToPath(
+  new URL('../roms/gba-farcart-probe.gba', import.meta.url),
+);
 
 /** Native Game Boy Advance resolution. */
 const GBA_ASPECT = 240 / 160;
@@ -39,6 +42,37 @@ test.describe('Game Boy Advance', () => {
 
     await expect(page.getByRole('button', { name: 'L', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'R', exact: true })).toBeVisible();
+  });
+
+  /*
+   * mGBA maps a cartridge instead of copying it, so the buffer handed to
+   * loadROM has to stay valid for as long as the game runs. It briefly did
+   * not, and a 16 MiB retail cartridge came out as a white screen.
+   *
+   * Merely padding a small test ROM does not catch this — that was tried, and
+   * it passes either way, because a released allocation still holds its old
+   * bytes and a tiny ROM never reads past its own first few kilobytes. What
+   * catches it is a cartridge whose *picture* depends on bytes far from the
+   * code, which is what this probe is: four colours stored 4, 8, 12 and nearly
+   * 16 MiB in, drawn as four bands.
+   */
+  test('keeps the whole cartridge readable, not just its first kilobytes', async ({ page }) => {
+    await page.goto('./');
+    await page.locator('input[type=file]').setInputFiles(FAR_CART_ROM);
+    await page.locator('.game-tile').first().click();
+    await page.getByRole('button', { name: 'Spielen' }).click();
+
+    // Red, green, blue, white — top to bottom, one band per far marker.
+    const expected = [
+      [255, 0, 0],
+      [0, 255, 0],
+      [0, 0, 255],
+      [255, 255, 255],
+    ];
+
+    await expect
+      .poll(() => bandColours(page), { timeout: 30_000, intervals: [500] })
+      .toEqual(expected);
   });
 
   test('offers no 2.5D for a system the depth renderer does not cover', async ({ page }) => {
@@ -104,5 +138,47 @@ async function canvasColourCount(page: import('@playwright/test').Page): Promise
       seen.add((data[i]! << 16) | (data[i + 1]! << 8) | data[i + 2]!);
     }
     return seen.size;
+  });
+}
+
+/**
+ * The colour of each of the four horizontal bands the far-cartridge probe
+ * draws, sampled at the middle of each band and snapped to full 8-bit
+ * channels — the GBA's 5-bit colours come out as 0xF8-style values once
+ * scaled, which is exact enough to compare against pure red, green and blue.
+ */
+async function bandColours(
+  page: import('@playwright/test').Page,
+): Promise<number[][]> {
+  return page.locator('canvas.player-canvas').evaluate((canvas) => {
+    const source = canvas as HTMLCanvasElement;
+    const probe = document.createElement('canvas');
+    probe.width = source.width;
+    probe.height = source.height;
+    const ctx = probe.getContext('2d');
+    if (!ctx) return [];
+    ctx.drawImage(source, 0, 0);
+    const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
+
+    // The picture is letterboxed, so the bands are found relative to the drawn
+    // rectangle rather than to the canvas.
+    let top = -1;
+    let bottom = -1;
+    for (let y = 0; y < probe.height; y++) {
+      const i = (y * probe.width + (probe.width >> 1)) * 4;
+      const lit = data[i]! + data[i + 1]! + data[i + 2]! > 24;
+      if (lit && top < 0) top = y;
+      if (lit) bottom = y;
+    }
+    if (top < 0) return [];
+
+    const height = bottom - top + 1;
+    const x = probe.width >> 1;
+    return [0, 1, 2, 3].map((band) => {
+      const y = top + Math.floor((height * (band + 0.5)) / 4);
+      const i = (y * probe.width + x) * 4;
+      // 5-bit channels scale to 0, 8, 16 ... 248; round each to 0 or 255.
+      return [data[i]!, data[i + 1]!, data[i + 2]!].map((v) => (v > 127 ? 255 : 0));
+    });
   });
 }

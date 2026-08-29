@@ -54,6 +54,17 @@ typedef struct {
      */
     uint8_t *savedata;
 
+    /*
+     * The cartridge, owned here for as long as it is loaded.
+     *
+     * mGBA maps a GBA ROM rather than copying it: the VFile handed to loadROM
+     * stays the backing store for every cartridge read the game makes. The
+     * caller's buffer is therefore not enough — it is freed as soon as the
+     * load call returns — so the bytes are copied into an allocation that
+     * lives exactly as long as the loaded ROM does.
+     */
+    uint8_t *rom_data;
+
     unsigned sample_rate;
 } core_t;
 
@@ -89,6 +100,9 @@ static void release(void)
     }
     free(gba.savedata);
     gba.savedata = NULL;
+    /* Safe only after deinit above, which is what unmaps the ROM. */
+    free(gba.rom_data);
+    gba.rom_data = NULL;
     gba.open = false;
     gba.rom_loaded = false;
 }
@@ -137,10 +151,19 @@ int gbaw_load_rom(const uint8_t *data, int size)
 {
     if (!gba.open || !gba.core || size <= 0) return -1;
 
-    struct VFile *rom = VFileFromConstMemory(data, (size_t)size);
+    /* A previous cartridge, if any, is only unmapped by unloadROM. */
+    gba.core->unloadROM(gba.core);
+    free(gba.rom_data);
+    gba.rom_data = malloc((size_t)size);
+    if (!gba.rom_data) return -1;
+    memcpy(gba.rom_data, data, (size_t)size);
+
+    struct VFile *rom = VFileFromConstMemory(gba.rom_data, (size_t)size);
     if (!rom) return -1;
     if (!gba.core->loadROM(gba.core, rom)) {
         rom->close(rom);
+        free(gba.rom_data);
+        gba.rom_data = NULL;
         return -1;
     }
 
