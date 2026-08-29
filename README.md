@@ -133,6 +133,12 @@ Klappt das nicht, läuft die App trotzdem — der Core fällt dann auf Kopieren 
 
 Es sind keine Spiele im Repo, und es werden auch keine hinzugefügt — `.gitignore` blockt die entsprechenden Endungen. Spiele werden über den Datei-Import aus der Dateien-App geladen und verlassen das Gerät nie. Die einzige Ausnahme sind frei verteilbare Homebrew-Test-ROMs unter `tests/roms/`, die zur Prüfung der Core-Genauigkeit dienen.
 
+Akzeptiert werden `.gb`, `.gbc`, `.gba` und `.nds` sowie gepackte Archive: `.zip`, `.rar` und `.7z`. Das Auspacken passiert im Gerät. ROM-Hacks werden fast immer gepackt verteilt, und ein Archiv auf dem iPhone von Hand zu entpacken ist mühsam.
+
+ZIP kostet nichts, weil fflate ohnehin für die Komprimierung der Speicherstände eingebunden ist. RAR und 7z gehen durch libarchive, rund 600 KiB WebAssembly, die erst geladen werden, wenn tatsächlich so eine Datei ausgewählt wird. libarchive liest RAR über eine eigene BSD-lizenzierte Implementierung, nicht über den UnRAR-Quellcode, dessen Nutzungsbeschränkung mit der GPL-3.0 unvereinbar wäre.
+
+Liegen mehrere ROMs in einem Archiv, wird die größte genommen und das beim Import angezeigt. Passwortgeschützte Archive werden nicht unterstützt.
+
 ## Lizenz
 
 GPL-3.0-or-later (siehe [`LICENSE`](LICENSE)).

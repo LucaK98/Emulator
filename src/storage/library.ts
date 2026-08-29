@@ -13,6 +13,7 @@ import { isLikelyGbaRom, parseGbaRom } from '../core/gbaRom';
 import { isLikelyNdsRom, parseNdsRom } from '../core/ndsRom';
 import { systemForFileName, type SystemId } from '../core/systems';
 import { deflate, inflate } from 'fflate';
+import { archiveKind, unpackRom } from './archive';
 import { Store, get, getAll, getAllKeys, put, remove } from './db';
 
 export interface GameEntry {
@@ -77,16 +78,33 @@ export function getRom(id: string): Promise<ArrayBuffer | undefined> {
  */
 export async function importRom(
   file: File,
+  baseUrl = '/',
 ): Promise<{ entry: GameEntry; alreadyPresent: boolean; warning: string | null }> {
-  const buffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
+  let buffer = await file.arrayBuffer();
+  let bytes: Uint8Array = new Uint8Array(buffer);
+  let name = file.name;
+  let unpackNote: string | null = null;
 
-  const spec = systemForFileName(file.name);
-  if (!spec) {
-    throw new Error('Unbekannte Dateiendung (erwartet .gb, .gbc oder .gba)');
+  // A packed download is unpacked here rather than by the player: ROM hacks
+  // are nearly always distributed as an archive, and unpacking one by hand on
+  // a phone is a chore.
+  const kind = archiveKind(bytes);
+  if (kind) {
+    const unpacked = await unpackRom(bytes, kind, baseUrl);
+    bytes = unpacked.bytes;
+    // A fresh copy: the unpacked view may sit inside a larger buffer, and what
+    // gets stored has to be the cartridge and nothing else.
+    buffer = bytes.slice().buffer as ArrayBuffer;
+    name = unpacked.name;
+    unpackNote = unpacked.note;
   }
 
-  const fallbackTitle = file.name.replace(/\.[^.]+$/, '');
+  const spec = systemForFileName(name);
+  if (!spec) {
+    throw new Error('Unbekannte Dateiendung (erwartet .gb, .gbc, .gba oder .nds)');
+  }
+
+  const fallbackTitle = name.replace(/\.[^.]+$/, '');
   const id = await romId(bytes);
   const existing = await getGame(id);
   if (existing) return { entry: existing, alreadyPresent: true, warning: null };
@@ -97,7 +115,7 @@ export async function importRom(
   const entry: GameEntry = {
     id,
     system: spec.id,
-    size: buffer.byteLength,
+    size: bytes.byteLength,
     addedAt: Date.now(),
     lastPlayedAt: null,
     thumbnail: null,
@@ -106,7 +124,8 @@ export async function importRom(
 
   await put(Store.Roms, buffer, id);
   await put(Store.Games, entry);
-  return { entry, alreadyPresent: false, warning: draft.warning };
+  const warning = [unpackNote, draft.warning].filter(Boolean).join(' · ') || null;
+  return { entry, alreadyPresent: false, warning };
 }
 
 type RomDraft = {

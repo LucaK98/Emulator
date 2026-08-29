@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "fflate": "^0.8.3",
+    "libarchive-wasm": "^1.2.0",
     "preact": "^10.28.3"
   },
   "devDependencies": {

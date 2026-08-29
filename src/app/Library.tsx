@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { importRom, listGames, deleteGame, type GameEntry } from '../storage/library';
 import { ALL_ROM_EXTENSIONS, SYSTEMS } from '../core/systems';
+import { ARCHIVE_EXTENSIONS } from '../storage/archive';
 import { formatBytes } from '../storage/persist';
 
 interface Props {
@@ -31,7 +32,10 @@ export function Library({ onPlay, onOpenSettings }: Props) {
     const messages: string[] = [];
     for (const file of files) {
       try {
-        const { entry, alreadyPresent, warning } = await importRom(file);
+        const { entry, alreadyPresent, warning } = await importRom(
+          file,
+          import.meta.env.BASE_URL,
+        );
         if (alreadyPresent) messages.push(`${entry.title} war schon da`);
         else if (warning) messages.push(`${entry.title} hinzugefügt — ${warning}`);
         else messages.push(`${entry.title} hinzugefügt`);
@@ -67,7 +71,7 @@ export function Library({ onPlay, onOpenSettings }: Props) {
       <input
         ref={fileRef}
         type="file"
-        accept={`${ALL_ROM_EXTENSIONS.join(',')},application/octet-stream`}
+        accept={`${ALL_ROM_EXTENSIONS.join(',')},${ARCHIVE_EXTENSIONS.join(',')},application/octet-stream`}
         multiple
         hidden
         onChange={(event) => void onFiles(event)}
