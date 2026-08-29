@@ -59,7 +59,7 @@ const FOV_Y = (38 * Math.PI) / 180;
  * The decoders reach well past the console's rectangle so the tilted ground
  * fills the screen; this has to hold the largest window either of them takes.
  */
-const MAX_GROUND_INSTANCES = 46 * 56;
+const MAX_GROUND_INSTANCES = 64 * 64;
 /** The GBA's full object table; the Game Boy uses the first forty. */
 const MAX_SPRITE_INSTANCES = 128;
 /**
@@ -88,6 +88,7 @@ flat out int v_palette;
 flat out int v_flip;
 out float v_shade;
 flat out int v_isSide;
+out vec2 v_world;
 
 void main() {
   float height = a_instData.w * u_extrusion;
@@ -106,6 +107,8 @@ void main() {
   v_flip = int(a_instData.z);
   v_shade = a_shade;
   v_isSide = int(a_side);
+  // In the console's own screen coordinates, for the edge fade.
+  v_world = vec2(world.x, -world.y);
 }`;
 
 const tileFragment = (g: SceneGeometry) => `#version 300 es
@@ -119,7 +122,9 @@ flat in int v_palette;
 flat in int v_flip;
 flat in int v_isSide;
 in float v_shade;
+in vec2 v_world;
 
+uniform vec2 u_screen;      // the console's own picture, in its own pixels
 uniform usampler2D u_atlas;
 uniform usampler2D u_sideIndex;
 uniform sampler2D u_palette;
@@ -128,7 +133,25 @@ uniform int u_discardZero;  // objects treat colour 0 as transparent
 
 out vec4 outColor;
 
+/*
+ * How brightly to draw a point, by how far outside the console's own picture
+ * it lies.
+ *
+ * Beyond that rectangle the map data is real but stale: consoles keep only a
+ * little more map in memory than they show, and the border is whatever last
+ * scrolled out of view. Fading it makes the edge of what is actually known
+ * look deliberate, and stops a house that scrolls into memory from popping up
+ * at full brightness some distance from the player.
+ */
+float edgeFade() {
+  vec2 outside = max(-v_world, v_world - u_screen);
+  float distance = max(max(outside.x, outside.y), 0.0);
+  return mix(1.0, 0.22, clamp(distance / 96.0, 0.0, 1.0));
+}
+
 void main() {
+  float fade = edgeFade();
+
   if (v_isSide == 1) {
     // A tile was drawn to be seen from above and has no side texture. Smearing
     // one of its rows down the wall is what makes doorways trail black streaks
@@ -139,7 +162,7 @@ void main() {
       0
     ).r;
     vec4 wall = texelFetch(u_palette, ivec2(int(side), u_paletteRow + v_palette), 0);
-    outColor = vec4(wall.rgb * v_shade, 1.0);
+    outColor = vec4(wall.rgb * v_shade * fade, 1.0);
     return;
   }
 
@@ -156,7 +179,7 @@ void main() {
   if (u_discardZero == 1 && index == 0u) discard;
 
   vec4 colour = texelFetch(u_palette, ivec2(int(index), u_paletteRow + v_palette), 0);
-  outColor = vec4(colour.rgb * v_shade, 1.0);
+  outColor = vec4(colour.rgb * v_shade * fade, 1.0);
 }`;
 
 const SPRITE_VERTEX = `#version 300 es
@@ -640,6 +663,8 @@ export class Depth25DRenderer implements SceneRenderer {
     gl.uniform1f(this.uniform(this.tileProgram, 'u_extrusion'), extrusion);
     gl.uniform1i(this.uniform(this.tileProgram, 'u_paletteRow'), paletteRow);
     gl.uniform1i(this.uniform(this.tileProgram, 'u_discardZero'), discardZero ? 1 : 0);
+    const { screenWidth, screenHeight } = this.decoder.geometry;
+    gl.uniform2f(this.uniform(this.tileProgram, 'u_screen'), screenWidth, screenHeight);
     this.bindTextures(this.tileProgram);
 
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 30, count);

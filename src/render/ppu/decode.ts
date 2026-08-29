@@ -44,22 +44,21 @@ export const ATLAS_HEIGHT = (MAX_TILES / ATLAS_TILES_PER_ROW) * 8;
 /*
  * How much world is decoded around the visible screen.
  *
- * The depth view is not confined to the console's rectangle: the tilted ground
- * carries on past every edge, and furthest up the screen it reaches deepest
- * into the map. Decoding only what the flat picture shows would end the ground
- * in mid-air, so the window is grown generously — upwards most of all, because
- * that is the direction the camera looks along.
+ * The depth view is not confined to the console's rectangle, so the ground has
+ * to reach past every edge or it would end in mid-air. But it can only reach
+ * as far as the console actually holds: the Game Boy's background map is 32
+ * tiles square — 256 by 256 pixels, barely more than one screen — and it
+ * wraps. Asking for more than that does not show more world, it shows the same
+ * map again, which is why a window wider than the map made houses appear out
+ * of nowhere as the player walked.
  *
- * The Game Boy's map is 32 tiles square and wraps, so nothing here can address
- * anything that is not there.
+ * So the window is the whole map and not one tile more, centred on the screen.
  */
-export const MARGIN_LEFT = 8;
-export const MARGIN_RIGHT = 8;
-export const MARGIN_TOP = 18;
-export const MARGIN_BOTTOM = 16;
+export const VIEW_COLS = 32;
+export const VIEW_ROWS = 32;
 
-export const VIEW_COLS = 20 + MARGIN_LEFT + MARGIN_RIGHT;
-export const VIEW_ROWS = 18 + MARGIN_TOP + MARGIN_BOTTOM;
+export const MARGIN_LEFT = Math.floor((VIEW_COLS - 20) / 2);
+export const MARGIN_TOP = Math.floor((VIEW_ROWS - 18) / 2);
 
 const MAP_TILES = 32;
 const OAM_ENTRIES = 40;

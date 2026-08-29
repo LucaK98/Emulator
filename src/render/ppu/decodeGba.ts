@@ -58,18 +58,19 @@ export const GBA_GEOMETRY: SceneGeometry = {
 /*
  * How much world is decoded around the visible screen, per layer.
  *
- * The same reasoning as on the Game Boy: the depth view carries on past every
- * edge of the console's rectangle, furthest at the top, so the ground has to
- * be decoded well beyond what the flat picture shows. Maps wrap, so the margin
- * can never address anything that is not there.
+ * The depth view reaches past every edge of the console's rectangle, so the
+ * ground has to be decoded beyond what the flat picture shows — but never
+ * beyond what the layer's map actually holds. Maps wrap, and asking for more
+ * than one map's worth does not show more world, it shows the same map again.
+ * A GBA layer may be 64 tiles square, so there is usually real room here; the
+ * cap per layer is applied where its size is known.
  */
-const MARGIN_LEFT = 8;
-const MARGIN_RIGHT = 8;
-const MARGIN_TOP = 18;
-const MARGIN_BOTTOM = 16;
+const MAX_VIEW_COLS = 64;
+const MAX_VIEW_ROWS = 64;
 
-const VIEW_COLS = 30 + MARGIN_LEFT + MARGIN_RIGHT;
-const VIEW_ROWS = 20 + MARGIN_TOP + MARGIN_BOTTOM;
+/** What the screen itself covers, in tiles. */
+const SCREEN_COLS = 30;
+const SCREEN_ROWS = 20;
 
 const OAM_ENTRIES = 128;
 
@@ -136,10 +137,10 @@ export class GbaPpuDecoder {
   readonly geometry = GBA_GEOMETRY;
 
   private readonly layerCells = [
-    makeCells(VIEW_COLS * VIEW_ROWS),
-    makeCells(VIEW_COLS * VIEW_ROWS),
-    makeCells(VIEW_COLS * VIEW_ROWS),
-    makeCells(VIEW_COLS * VIEW_ROWS),
+    makeCells(MAX_VIEW_COLS * MAX_VIEW_ROWS),
+    makeCells(MAX_VIEW_COLS * MAX_VIEW_ROWS),
+    makeCells(MAX_VIEW_COLS * MAX_VIEW_ROWS),
+    makeCells(MAX_VIEW_COLS * MAX_VIEW_ROWS),
   ];
 
   /**
@@ -357,19 +358,25 @@ function decodeLayer(
   const fullColour = (control & BGCNT.FULL_COLOUR) !== 0;
   const [mapWidth, mapHeight] = MAP_SIZES[(control & BGCNT.SIZE) >> 14]!;
 
+  // Never more than the map holds, and never more than the buffers take.
+  const cols = Math.min(mapWidth, MAX_VIEW_COLS);
+  const rows = Math.min(mapHeight, MAX_VIEW_ROWS);
+  const marginLeft = Math.floor((cols - SCREEN_COLS) / 2);
+  const marginTop = Math.floor((rows - SCREEN_ROWS) / 2);
+
   // A 256-colour tile is twice the size, so a tile number addresses half as
   // far; expressing it as a tile step keeps the atlas indexing uniform.
   const tileStep = fullColour ? 2 : 1;
   const charTile = charBase / 32;
 
-  const firstColumn = Math.floor(scrollX / 8) - MARGIN_LEFT;
-  const firstRow = Math.floor(scrollY / 8) - MARGIN_TOP;
+  const firstColumn = Math.floor(scrollX / 8) - marginLeft;
+  const firstRow = Math.floor(scrollY / 8) - marginTop;
   const offsetX = scrollX - Math.floor(scrollX / 8) * 8;
   const offsetY = scrollY - Math.floor(scrollY / 8) * 8;
 
   let count = 0;
-  for (let row = 0; row < VIEW_ROWS; row++) {
-    for (let column = 0; column < VIEW_COLS; column++) {
+  for (let row = 0; row < rows; row++) {
+    for (let column = 0; column < cols; column++) {
       const mapX = (((firstColumn + column) % mapWidth) + mapWidth) % mapWidth;
       const mapY = (((firstRow + row) % mapHeight) + mapHeight) % mapHeight;
       const entry = readMapEntry(vram, mapBase, mapX, mapY, mapWidth);
@@ -380,8 +387,8 @@ function decodeLayer(
 
       cells.mapX[count] = mapX;
       cells.mapY[count] = mapY;
-      cells.worldX[count] = (column - MARGIN_LEFT) * 8 - offsetX;
-      cells.worldY[count] = (row - MARGIN_TOP) * 8 - offsetY;
+      cells.worldX[count] = (column - marginLeft) * 8 - offsetX;
+      cells.worldY[count] = (row - marginTop) * 8 - offsetY;
       cells.tile[count] = tile;
       // A 256-colour tile indexes the whole bank, which is palette zero here.
       cells.palette[count] = fullColour ? 0 : (entry >> 12) & 0x0f;
