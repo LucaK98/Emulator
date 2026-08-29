@@ -354,11 +354,17 @@ h2 {
 /* --- Player ------------------------------------------------------------- */
 
 .player {
+  /*
+   * Pinned rather than merely tall: while a game is on screen nothing may
+   * scroll. A stray scroll on iOS — from a double tap, the dynamic toolbar,
+   * a focus jump — moves the controls out from under the player's thumbs.
+   */
+  position: fixed;
+  inset: 0;
   display: grid;
   grid-template-rows: 1fr auto;
   gap: 0;
   padding: 0;
-  height: 100dvh;
   overflow: hidden;
   background: #05070a;
 }
@@ -421,6 +427,16 @@ h2 {
   padding:
     0.75rem calc(var(--safe-right) + 0.75rem) calc(var(--safe-bottom) + 0.75rem)
     calc(var(--safe-left) + 0.75rem);
+  touch-action: none;
+}
+
+/*
+ * touch-action is resolved from the element the touch lands on upwards, and a
+ * touch lands on a button, not on the surface. Spelling it out on the children
+ * removes any doubt: on iOS a double tap that survives this zooms the page,
+ * and a zoomed page is one the player then has to fight.
+ */
+.touch-surface * {
   touch-action: none;
 }
 

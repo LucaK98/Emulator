@@ -181,6 +181,13 @@ export function TouchControls({
       // Only capture on the control surface, so the menu button still works.
       if (event.target instanceof Element && event.target.closest('[data-passthrough]')) return;
       event.preventDefault();
+      // Measure afresh on every press rather than trusting the last measurement.
+      // The controls can move for reasons no event announces — an errant scroll
+      // or zoom from a double tap, the dynamic toolbar, the visual viewport
+      // shifting under the layout — and a stale rectangle means the button is
+      // simply dead. A press is rare enough that measuring is free; what it
+      // buys is that a press is always tested against where the buttons are.
+      remeasure();
       surface.setPointerCapture(event.pointerId);
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       recompute();
@@ -204,6 +211,14 @@ export function TouchControls({
     surface.addEventListener('pointercancel', onPointerEnd);
     window.addEventListener('resize', remeasure);
     window.addEventListener('orientationchange', remeasure);
+    // A scroll anywhere in the page moves the controls with it, and iOS scrolls
+    // the page on its own account often enough to matter. Capture, because the
+    // scroll usually happens on an inner element and does not bubble.
+    window.addEventListener('scroll', remeasure, true);
+    // Pinch-zoom and the on-screen keyboard move the visual viewport without
+    // resizing the layout viewport, so window resize never fires.
+    visualViewport?.addEventListener('resize', remeasure);
+    visualViewport?.addEventListener('scroll', remeasure);
 
     return () => {
       surface.removeEventListener('pointerdown', onPointerDown);
@@ -212,6 +227,9 @@ export function TouchControls({
       surface.removeEventListener('pointercancel', onPointerEnd);
       window.removeEventListener('resize', remeasure);
       window.removeEventListener('orientationchange', remeasure);
+      window.removeEventListener('scroll', remeasure, true);
+      visualViewport?.removeEventListener('resize', remeasure);
+      visualViewport?.removeEventListener('scroll', remeasure);
       input.set('touch', 0);
     };
   }, [input, disabled, hasShoulders, hasDiamond, actions.length, onAction]);
