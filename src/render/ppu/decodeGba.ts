@@ -219,8 +219,16 @@ export class GbaPpuDecoder {
       decodeLayer(vram, control, scrollX, scrollY, cells);
       if (cells.count === 0) continue;
 
+      const [mapWidth, mapHeight] = MAP_SIZES[(control & BGCNT.SIZE) >> 14]!;
       layers.push({
-        layer: { cells, priority: control & BGCNT.PRIORITY },
+        layer: {
+          cells,
+          priority: control & BGCNT.PRIORITY,
+          scrollX,
+          scrollY,
+          mapWidth: mapWidth * 8,
+          mapHeight: mapHeight * 8,
+        },
         pinned: layerIsPinned(lines, bg),
         index: bg,
       });

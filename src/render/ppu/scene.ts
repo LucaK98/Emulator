@@ -66,6 +66,16 @@ export interface SceneLayer {
    * this orders the passes.
    */
   priority: number;
+  /** This layer's own scroll, in pixels. Layers move at their own rates. */
+  scrollX: number;
+  scrollY: number;
+  /**
+   * The size of the layer's map in pixels, which is also the distance its
+   * scroll wraps over. The world memory needs it to tell walking forwards from
+   * the map wrapping around.
+   */
+  mapWidth: number;
+  mapHeight: number;
 }
 
 /** The fixed shape of a console's tiles, palettes and screen. */
@@ -102,6 +112,11 @@ export interface DepthScene {
    * Stretching one of its rows down the side of a block is what produces the
    * smears under doorways and the stripes on fences. A single colour, taken as
    * the one the tile uses most, reads as solid masonry instead.
+   *
+   * It doubles as a fingerprint of the tile art. When a game loads a new area
+   * it rewrites its tiles, and the world memory has to forget what it knew
+   * because the same tile number now draws something else; comparing this
+   * against the previous frame's is how that is noticed.
    */
   tileSideIndex: Uint8Array;
   /** paletteCount * paletteSize entries, RGBA8888. */

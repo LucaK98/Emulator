@@ -17,6 +17,7 @@ import {
   type CellArrays,
   type DepthScene,
   type SceneGeometry,
+  type SceneLayer,
   type SpriteArrays,
 } from './scene';
 
@@ -86,7 +87,9 @@ export class PpuDecoder {
     displayOn: false,
     // The Game Boy draws its background behind everything and its window in
     // front of everything, so the two groups have one layer each at most.
-    ground: [{ cells: this.bg, priority: 3 }],
+    ground: [
+      { cells: this.bg, priority: 3, scrollX: 0, scrollY: 0, mapWidth: 256, mapHeight: 256 },
+    ],
     hud: [],
     sprites: makeSprites(OAM_ENTRIES),
     tileAtlas: new Uint8Array(ATLAS_WIDTH * ATLAS_HEIGHT),
@@ -99,7 +102,15 @@ export class PpuDecoder {
     scrollY: 0,
   };
 
-  private readonly windowLayer = { cells: this.window, priority: 0 };
+  /* The window is pinned to the screen: it neither scrolls nor wraps. */
+  private readonly windowLayer: SceneLayer = {
+    cells: this.window,
+    priority: 0,
+    scrollX: 0,
+    scrollY: 0,
+    mapWidth: 256,
+    mapHeight: 256,
+  };
 
   /** Decodes one captured PPU block. The returned scene is reused each call. */
   decode(block: Uint8Array): DepthScene {
@@ -145,6 +156,8 @@ export class PpuDecoder {
       signedTiles,
     };
 
+    scene.ground[0]!.scrollX = scene.scrollX;
+    scene.ground[0]!.scrollY = scene.scrollY;
     if (bgEnabled) {
       decodeBackground(
         reader,

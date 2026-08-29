@@ -21,6 +21,7 @@ import { TileHeightModel } from './heightModel';
 import { PpuDecoder } from './ppu/decode';
 import { GbaPpuDecoder } from './ppu/decodeGba';
 import type { CellArrays, DepthScene, SceneGeometry } from './ppu/scene';
+import { WINDOW_COLS, WINDOW_ROWS, WorldMemory } from './worldMemory';
 
 /**
  * What the renderer needs of a console's decoder: the shape of its tiles and
@@ -53,13 +54,8 @@ export const DEFAULT_DEPTH_SETTINGS: DepthSettings = {
 };
 
 const FOV_Y = (38 * Math.PI) / 180;
-/**
- * One layer's worth of cells.
- *
- * The decoders reach well past the console's rectangle so the tilted ground
- * fills the screen; this has to hold the largest window either of them takes.
- */
-const MAX_GROUND_INSTANCES = 64 * 64;
+/** One layer's worth of cells: whatever the world memory hands back. */
+const MAX_GROUND_INSTANCES = WINDOW_COLS * WINDOW_ROWS;
 /** The GBA's full object table; the Game Boy uses the first forty. */
 const MAX_SPRITE_INSTANCES = 128;
 /**
@@ -322,6 +318,7 @@ export class Depth25DRenderer implements SceneRenderer {
 
   settings: DepthSettings = { ...DEFAULT_DEPTH_SETTINGS };
   readonly heights = new TileHeightModel();
+  private memory: WorldMemory | null = null;
 
   private readonly viewProj: Mat4 = identity();
   private readonly flatProj: Mat4 = identity();
@@ -433,6 +430,9 @@ export class Depth25DRenderer implements SceneRenderer {
       this.drawFlat(pixels);
       return;
     }
+    // The height model judges from what the console is showing now, not from
+    // what is remembered: a tile only counts as walkable where a character was
+    // actually seen standing on it.
     this.heights.update(scene);
 
     const gl = this.gl;
@@ -457,13 +457,19 @@ export class Depth25DRenderer implements SceneRenderer {
     gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.BLEND);
 
+    // The console holds barely more map than it shows, so what is drawn is not
+    // taken straight from it: the world memory keeps what the player has
+    // already walked through, and hands back the surroundings.
+    this.memory ??= new WorldMemory(scene.tileSideIndex.length);
+
     // Back to front, so a layer the hardware draws in front covers the ones
     // behind it. Only the hindmost carries height: raising every layer would
     // extrude the same scenery several times over.
     for (let i = 0; i < scene.ground.length; i++) {
       const layer = scene.ground[i]!;
-      if (layer.cells.count === 0) continue;
-      const count = this.fillCells(layer.cells, this.groundData, i === 0);
+      const remembered = this.memory.expand(i, layer, scene);
+      if (remembered.count === 0) continue;
+      const count = this.fillCells(remembered, this.groundData, i === 0);
       this.drawTiles(
         this.groundData,
         count,
@@ -518,6 +524,11 @@ export class Depth25DRenderer implements SceneRenderer {
     gl.deleteBuffer(this.boxInstances);
     gl.deleteBuffer(this.spriteInstances);
     gl.deleteBuffer(this.shadowInstances);
+  }
+
+  /** How much world is currently remembered, for the diagnostics readout. */
+  rememberedCells(): number {
+    return this.memory?.rememberedCells() ?? 0;
   }
 
   /** Draws the emulator's own picture, for frames with no layers to rebuild. */

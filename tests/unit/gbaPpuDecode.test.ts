@@ -53,8 +53,10 @@ describe('GBA layer decoder', () => {
     expect(align(ground.worldX[0]!)).toBe(align(-5));
     expect(align(ground.worldY[0]!)).toBe(align(-6));
 
-    // And it reaches past every edge, so a tilted ground plane has world to
-    // stand on wherever the camera looks.
+    // It covers the whole screen and every tile of the layer's map, and not
+    // one more: a window wider than the map would wrap around and present a
+    // distant part of it as the neighbourhood. Reaching further than the map
+    // is the world memory's job, not the decoder's.
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (let i = 0; i < ground.count; i++) {
       minX = Math.min(minX, ground.worldX[i]!);
@@ -62,10 +64,13 @@ describe('GBA layer decoder', () => {
       maxX = Math.max(maxX, ground.worldX[i]! + 8);
       maxY = Math.max(maxY, ground.worldY[i]! + 8);
     }
-    expect(minX).toBeLessThan(-32);
-    expect(minY).toBeLessThan(-32);
-    expect(maxX).toBeGreaterThan(240 + 32);
-    expect(maxY).toBeGreaterThan(160 + 32);
+    expect(minX).toBeLessThanOrEqual(0);
+    expect(minY).toBeLessThanOrEqual(0);
+    expect(maxX).toBeGreaterThanOrEqual(240);
+    expect(maxY).toBeGreaterThanOrEqual(160);
+
+    // The probe's layer is 32 tiles square, so that is exactly what it holds.
+    expect(ground.count).toBe(32 * 32);
   });
 
   it('reads object sizes, flips and priority', async () => {
