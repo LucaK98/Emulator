@@ -159,6 +159,7 @@ export class GbaPpuDecoder {
     hud: [],
     sprites: makeSprites(OAM_ENTRIES),
     tileAtlas: new Uint8Array(GBA_GEOMETRY.atlasWidth * GBA_GEOMETRY.atlasHeight),
+    tileSideIndex: new Uint8Array(MAX_TILES),
     bgPalettes: new Uint32Array(16 * 16),
     objPalettes: new Uint32Array(16 * 16),
     scrollXByLine: new Int32Array(SCREEN_HEIGHT),
@@ -255,6 +256,7 @@ export class GbaPpuDecoder {
     const words = new Uint32Array(vram.buffer, vram.byteOffset, GbaPpu.VRAM_BYTES / 4);
     const atlas = this.scene.tileAtlas;
     const atlasWidth = GBA_GEOMETRY.atlasWidth;
+    const histogram = new Uint16Array(16);
     const first = !this.vramSeen;
     this.vramSeen = true;
 
@@ -273,17 +275,42 @@ export class GbaPpuDecoder {
 
       const originX = (tile % ATLAS_TILES_PER_ROW) * 8;
       const originY = Math.floor(tile / ATLAS_TILES_PER_ROW) * 8;
+      histogram.fill(0);
       for (let row = 0; row < 8; row++) {
         let target = (originY + row) * atlasWidth + originX;
         const source = address + row * 4;
         for (let pair = 0; pair < 4; pair++) {
           const byte = vram[source + pair] ?? 0;
-          atlas[target++] = byte & 0x0f;
-          atlas[target++] = byte >> 4;
+          const low = byte & 0x0f;
+          const high = byte >> 4;
+          atlas[target++] = low;
+          atlas[target++] = high;
+          histogram[low]!++;
+          histogram[high]!++;
         }
       }
+      this.scene.tileSideIndex[tile] = dominantIndex(histogram);
     }
   }
+}
+
+/**
+ * The colour a tile uses most, which is what the sides of a raised block are
+ * painted with.
+ *
+ * Colour zero is skipped where the tile has anything else: it is transparent,
+ * and a block whose sides are transparent looks like a hole.
+ */
+function dominantIndex(histogram: Uint16Array): number {
+  let best = 0;
+  let bestCount = -1;
+  for (let index = 1; index < histogram.length; index++) {
+    if (histogram[index]! > bestCount) {
+      bestCount = histogram[index]!;
+      best = index;
+    }
+  }
+  return bestCount > 0 ? best : 0;
 }
 
 /** Whether a layer's scroll held still across the whole frame. */

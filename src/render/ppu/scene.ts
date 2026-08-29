@@ -95,6 +95,15 @@ export interface DepthScene {
   sprites: SpriteArrays;
   /** One byte per pixel: the palette index within that tile's palette. */
   tileAtlas: Uint8Array;
+  /**
+   * One colour index per tile, for the sides of an extruded block.
+   *
+   * A console's tile has no side texture — it was drawn to be seen from above.
+   * Stretching one of its rows down the side of a block is what produces the
+   * smears under doorways and the stripes on fences. A single colour, taken as
+   * the one the tile uses most, reads as solid masonry instead.
+   */
+  tileSideIndex: Uint8Array;
   /** paletteCount * paletteSize entries, RGBA8888. */
   bgPalettes: Uint32Array;
   objPalettes: Uint32Array;

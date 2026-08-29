@@ -74,6 +74,7 @@ const TILE_VERTEX = `#version 300 es
 in vec3 a_local;      // unit cube, 0..1 on each axis
 in vec2 a_uv;         // where in the tile this vertex samples
 in float a_shade;     // face shading, so the sides read as sides
+in float a_side;      // 1 on the four walls, 0 on the top
 
 in vec2 a_instPos;    // cell origin in screen pixels
 in vec4 a_instData;   // tile, palette, flip bits, height 0..1
@@ -86,6 +87,7 @@ flat out int v_tile;
 flat out int v_palette;
 flat out int v_flip;
 out float v_shade;
+flat out int v_isSide;
 
 void main() {
   float height = a_instData.w * u_extrusion;
@@ -103,6 +105,7 @@ void main() {
   v_palette = int(a_instData.y);
   v_flip = int(a_instData.z);
   v_shade = a_shade;
+  v_isSide = int(a_side);
 }`;
 
 const tileFragment = (g: SceneGeometry) => `#version 300 es
@@ -114,9 +117,11 @@ in vec2 v_uv;
 flat in int v_tile;
 flat in int v_palette;
 flat in int v_flip;
+flat in int v_isSide;
 in float v_shade;
 
 uniform usampler2D u_atlas;
+uniform usampler2D u_sideIndex;
 uniform sampler2D u_palette;
 uniform int u_paletteRow;   // 0 for background palettes, 8 for object palettes
 uniform int u_discardZero;  // objects treat colour 0 as transparent
@@ -124,6 +129,20 @@ uniform int u_discardZero;  // objects treat colour 0 as transparent
 out vec4 outColor;
 
 void main() {
+  if (v_isSide == 1) {
+    // A tile was drawn to be seen from above and has no side texture. Smearing
+    // one of its rows down the wall is what makes doorways trail black streaks
+    // and fences turn into stripes; one flat colour reads as masonry.
+    uint side = texelFetch(
+      u_sideIndex,
+      ivec2(v_tile % ${g.atlasTilesPerRow}, v_tile / ${g.atlasTilesPerRow}),
+      0
+    ).r;
+    vec4 wall = texelFetch(u_palette, ivec2(int(side), u_paletteRow + v_palette), 0);
+    outColor = vec4(wall.rgb * v_shade, 1.0);
+    return;
+  }
+
   int tx = int(floor(clamp(v_uv.x, 0.0, 0.9999) * 8.0));
   int ty = int(floor(clamp(v_uv.y, 0.0, 0.9999) * 8.0));
   if ((v_flip & 1) != 0) tx = 7 - tx;
@@ -313,6 +332,7 @@ export class Depth25DRenderer implements SceneRenderer {
     private readonly flatProgram: WebGLProgram,
     private readonly flatVao: WebGLVertexArrayObject,
     private readonly frameTexture: WebGLTexture,
+    private readonly sideTexture: WebGLTexture,
   ) {}
 
   static create(canvas: HTMLCanvasElement, spec: SystemSpec): Depth25DRenderer | null {
@@ -341,6 +361,7 @@ export class Depth25DRenderer implements SceneRenderer {
     const flatProgram = createProgram(gl, FLAT_VERTEX, FLAT_FRAGMENT);
     const flatVao = createFlatQuad(gl, flatProgram);
     const frameTexture = createFrameTexture(gl, geometry);
+    const sideTexture = createSideTexture(gl, geometry);
 
     const box = createBoxGeometry(gl, tileProgram);
     const sprite = createQuadGeometry(gl, spriteProgram);
@@ -364,6 +385,7 @@ export class Depth25DRenderer implements SceneRenderer {
       flatProgram,
       flatVao,
       frameTexture,
+      sideTexture,
     );
   }
 
@@ -393,6 +415,7 @@ export class Depth25DRenderer implements SceneRenderer {
     const gl = this.gl;
     this.uploadAtlas(scene);
     this.uploadPalettes(scene);
+    this.uploadSideColours(scene);
     this.buildCamera();
 
     // The world is not letterboxed into the console's rectangle: a tilted
@@ -691,6 +714,9 @@ export class Depth25DRenderer implements SceneRenderer {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
     gl.uniform1i(this.uniform(program, 'u_palette'), 1);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.sideTexture);
+    gl.uniform1i(this.uniform(program, 'u_sideIndex'), 2);
   }
 
   private uploadAtlas(scene: DepthScene): void {
@@ -707,6 +733,25 @@ export class Depth25DRenderer implements SceneRenderer {
       gl.RED_INTEGER,
       gl.UNSIGNED_BYTE,
       scene.tileAtlas,
+    );
+  }
+
+  /** One texel per tile: the colour its extruded walls are painted with. */
+  private uploadSideColours(scene: DepthScene): void {
+    const gl = this.gl;
+    const { atlasTilesPerRow, maxTiles } = scene.geometry;
+    gl.bindTexture(gl.TEXTURE_2D, this.sideTexture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texSubImage2D(
+      gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      atlasTilesPerRow,
+      maxTiles / atlasTilesPerRow,
+      gl.RED_INTEGER,
+      gl.UNSIGNED_BYTE,
+      scene.tileSideIndex,
     );
   }
 
@@ -763,16 +808,17 @@ function boxVertices(): Float32Array {
     corners: [number, number, number][],
     uvs: [number, number][],
     shade: number,
+    side = 1,
   ) => {
     const order = [0, 1, 2, 0, 2, 3];
     for (const i of order) {
       const c = corners[i]!;
       const uv = uvs[i]!;
-      data.push(c[0], c[1], c[2], uv[0], uv[1], shade);
+      data.push(c[0], c[1], c[2], uv[0], uv[1], shade, side);
     }
   };
 
-  // Top face: sampled as the tile itself.
+  // Top face: the tile as drawn.
   quad(
     [
       [0, 0, 1],
@@ -787,9 +833,18 @@ function boxVertices(): Float32Array {
       [0, 1],
     ],
     1.0,
+    0,
   );
 
-  // Front (towards the camera): repeats the tile's bottom row.
+  /*
+   * Front face: the tile again, standing upright.
+   *
+   * These games draw a building's lower rows as a facade — a door is drawn
+   * front-on, a window is drawn front-on — while the ground is drawn from
+   * above. So the face turned towards the camera is exactly where that art
+   * belongs, and a raised door tile becomes a door in a wall instead of a
+   * dark streak under one.
+   */
   quad(
     [
       [0, 1, 1],
@@ -798,15 +853,22 @@ function boxVertices(): Float32Array {
       [0, 1, 0],
     ],
     [
-      [0, 0.99],
-      [1, 0.99],
-      [1, 0.99],
-      [0, 0.99],
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
     ],
-    0.74,
+    0.86,
+    0,
   );
 
-  // Back: the tile's top row.
+  /*
+   * The other three walls carry no art.
+   *
+   * They are turned away from the camera, and there is nothing to put on them:
+   * stretching a row of the tile down a wall is what produced the smears this
+   * replaces. They take the tile's own dominant colour instead, shaded.
+   */
   quad(
     [
       [1, 0, 1],
@@ -815,15 +877,13 @@ function boxVertices(): Float32Array {
       [1, 0, 0],
     ],
     [
-      [1, 0],
       [0, 0],
       [0, 0],
-      [1, 0],
+      [0, 0],
+      [0, 0],
     ],
     0.5,
   );
-
-  // Left and right: the tile's edge columns.
   quad(
     [
       [0, 0, 1],
@@ -833,8 +893,8 @@ function boxVertices(): Float32Array {
     ],
     [
       [0, 0],
-      [0, 1],
-      [0, 1],
+      [0, 0],
+      [0, 0],
       [0, 0],
     ],
     0.6,
@@ -847,10 +907,10 @@ function boxVertices(): Float32Array {
       [1, 1, 0],
     ],
     [
-      [0.99, 1],
-      [0.99, 0],
-      [0.99, 0],
-      [0.99, 1],
+      [0, 0],
+      [0, 0],
+      [0, 0],
+      [0, 0],
     ],
     0.66,
   );
@@ -871,10 +931,11 @@ function createBoxGeometry(
 
   gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
   gl.bufferData(gl.ARRAY_BUFFER, boxVertices(), gl.STATIC_DRAW);
-  const stride = 6 * 4;
+  const stride = 7 * 4;
   bindAttribute(gl, program, 'a_local', 3, stride, 0);
   bindAttribute(gl, program, 'a_uv', 2, stride, 3 * 4);
   bindAttribute(gl, program, 'a_shade', 1, stride, 5 * 4);
+  bindAttribute(gl, program, 'a_side', 1, stride, 6 * 4);
 
   gl.bindBuffer(gl.ARRAY_BUFFER, instances);
   gl.bufferData(gl.ARRAY_BUFFER, MAX_GROUND_INSTANCES * INSTANCE_FLOATS * 4, gl.DYNAMIC_DRAW);
@@ -1031,5 +1092,25 @@ function createFrameTexture(
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return texture;
+}
+
+/** One texel per tile, holding the colour index its walls are painted with. */
+function createSideTexture(
+  gl: WebGL2RenderingContext,
+  geometry: SceneGeometry,
+): WebGLTexture {
+  const texture = gl.createTexture();
+  if (!texture) throw new Error('WebGL-Textur konnte nicht angelegt werden');
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texStorage2D(
+    gl.TEXTURE_2D,
+    1,
+    gl.R8UI,
+    geometry.atlasTilesPerRow,
+    geometry.maxTiles / geometry.atlasTilesPerRow,
+  );
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   return texture;
 }

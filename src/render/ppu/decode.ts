@@ -91,6 +91,7 @@ export class PpuDecoder {
     hud: [],
     sprites: makeSprites(OAM_ENTRIES),
     tileAtlas: new Uint8Array(ATLAS_WIDTH * ATLAS_HEIGHT),
+    tileSideIndex: new Uint8Array(GB_GEOMETRY.maxTiles),
     bgPalettes: new Uint32Array(32),
     objPalettes: new Uint32Array(32),
     scrollXByLine: new Int32Array(GB_SCREEN_HEIGHT),
@@ -135,7 +136,7 @@ export class PpuDecoder {
     const windowVisible =
       (lcdc & LCDC.WINDOW_ENABLE) !== 0 && windowY < GB_SCREEN_HEIGHT && windowX < GB_SCREEN_WIDTH;
 
-    decodeTiles(vram, vramSize, scene.tileAtlas);
+    decodeTiles(vram, vramSize, scene.tileAtlas, scene.tileSideIndex);
     decodePalettes(block, io, isCgb, scene);
 
     const signedTiles = (lcdc & LCDC.TILE_DATA_LOW) === 0;
@@ -177,8 +178,14 @@ export class PpuDecoder {
 }
 
 /** Unpacks 2bpp tile data into one byte per pixel, laid out as an atlas. */
-function decodeTiles(vram: Uint8Array, vramSize: number, atlas: Uint8Array): void {
+function decodeTiles(
+  vram: Uint8Array,
+  vramSize: number,
+  atlas: Uint8Array,
+  sideIndex: Uint8Array,
+): void {
   const banks = vramSize > 0x2000 ? 2 : 1;
+  const histogram = new Uint8Array(4);
 
   for (let bank = 0; bank < banks; bank++) {
     const bankBase = bank * 0x2000;
@@ -188,20 +195,46 @@ function decodeTiles(vram: Uint8Array, vramSize: number, atlas: Uint8Array): voi
       const atlasCol = (absolute % ATLAS_TILES_PER_ROW) * 8;
       const atlasRow = Math.floor(absolute / ATLAS_TILES_PER_ROW) * 8;
 
+      histogram.fill(0);
       for (let y = 0; y < 8; y++) {
         const low = vram[source + y * 2] ?? 0;
         const high = vram[source + y * 2 + 1] ?? 0;
         const rowBase = (atlasRow + y) * ATLAS_WIDTH + atlasCol;
         for (let x = 0; x < 8; x++) {
           const shift = 7 - x;
-          atlas[rowBase + x] = ((low >> shift) & 1) | (((high >> shift) & 1) << 1);
+          const index = ((low >> shift) & 1) | (((high >> shift) & 1) << 1);
+          atlas[rowBase + x] = index;
+          histogram[index]!++;
         }
       }
+      sideIndex[absolute] = dominantIndex(histogram);
     }
   }
 
   // Second bank absent on DMG: leave it blank rather than showing bank 0 twice.
-  if (banks === 1) atlas.fill(0, ATLAS_WIDTH * (ATLAS_HEIGHT / 2));
+  if (banks === 1) {
+    atlas.fill(0, ATLAS_WIDTH * (ATLAS_HEIGHT / 2));
+    sideIndex.fill(0, 384);
+  }
+}
+
+/**
+ * The colour a tile uses most, which is what its sides are painted with.
+ *
+ * Colour zero is skipped where the tile has anything else: on a mostly empty
+ * tile it is the background showing through, and a block whose sides are the
+ * background colour looks like a hole.
+ */
+function dominantIndex(histogram: Uint8Array): number {
+  let best = 0;
+  let bestCount = -1;
+  for (let index = 1; index < histogram.length; index++) {
+    if (histogram[index]! > bestCount) {
+      bestCount = histogram[index]!;
+      best = index;
+    }
+  }
+  return bestCount > 0 ? best : 0;
 }
 
 /**
