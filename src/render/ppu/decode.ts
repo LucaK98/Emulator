@@ -41,9 +41,25 @@ export const ATLAS_TILES_PER_ROW = 16;
 export const ATLAS_WIDTH = ATLAS_TILES_PER_ROW * 8;
 export const ATLAS_HEIGHT = (MAX_TILES / ATLAS_TILES_PER_ROW) * 8;
 
-/** Ground cells decoded per frame: the visible screen plus a one-tile margin. */
-export const VIEW_COLS = 22;
-export const VIEW_ROWS = 20;
+/*
+ * How much world is decoded around the visible screen.
+ *
+ * The depth view is not confined to the console's rectangle: the tilted ground
+ * carries on past every edge, and furthest up the screen it reaches deepest
+ * into the map. Decoding only what the flat picture shows would end the ground
+ * in mid-air, so the window is grown generously — upwards most of all, because
+ * that is the direction the camera looks along.
+ *
+ * The Game Boy's map is 32 tiles square and wraps, so nothing here can address
+ * anything that is not there.
+ */
+export const MARGIN_LEFT = 8;
+export const MARGIN_RIGHT = 8;
+export const MARGIN_TOP = 18;
+export const MARGIN_BOTTOM = 16;
+
+export const VIEW_COLS = 20 + MARGIN_LEFT + MARGIN_RIGHT;
+export const VIEW_ROWS = 18 + MARGIN_TOP + MARGIN_BOTTOM;
 
 const MAP_TILES = 32;
 const OAM_ENTRIES = 40;
@@ -271,8 +287,8 @@ function decodeBackground(
   scrollY: number,
   cells: CellArrays,
 ): void {
-  const firstCol = Math.floor(scrollX / 8);
-  const firstRow = Math.floor(scrollY / 8);
+  const firstCol = Math.floor(scrollX / 8) - MARGIN_LEFT;
+  const firstRow = Math.floor(scrollY / 8) - MARGIN_TOP;
 
   let count = 0;
   for (let row = 0; row < VIEW_ROWS; row++) {

@@ -55,9 +55,21 @@ export const GBA_GEOMETRY: SceneGeometry = {
   maxTiles: MAX_TILES,
 };
 
-/** Cells decoded per layer: the screen plus a tile of margin all round. */
-const VIEW_COLS = 32;
-const VIEW_ROWS = 22;
+/*
+ * How much world is decoded around the visible screen, per layer.
+ *
+ * The same reasoning as on the Game Boy: the depth view carries on past every
+ * edge of the console's rectangle, furthest at the top, so the ground has to
+ * be decoded well beyond what the flat picture shows. Maps wrap, so the margin
+ * can never address anything that is not there.
+ */
+const MARGIN_LEFT = 8;
+const MARGIN_RIGHT = 8;
+const MARGIN_TOP = 18;
+const MARGIN_BOTTOM = 16;
+
+const VIEW_COLS = 30 + MARGIN_LEFT + MARGIN_RIGHT;
+const VIEW_ROWS = 20 + MARGIN_TOP + MARGIN_BOTTOM;
 
 const OAM_ENTRIES = 128;
 
@@ -323,16 +335,16 @@ function decodeLayer(
   const tileStep = fullColour ? 2 : 1;
   const charTile = charBase / 32;
 
-  const firstColumn = Math.floor(scrollX / 8);
-  const firstRow = Math.floor(scrollY / 8);
-  const offsetX = scrollX - firstColumn * 8;
-  const offsetY = scrollY - firstRow * 8;
+  const firstColumn = Math.floor(scrollX / 8) - MARGIN_LEFT;
+  const firstRow = Math.floor(scrollY / 8) - MARGIN_TOP;
+  const offsetX = scrollX - Math.floor(scrollX / 8) * 8;
+  const offsetY = scrollY - Math.floor(scrollY / 8) * 8;
 
   let count = 0;
   for (let row = 0; row < VIEW_ROWS; row++) {
     for (let column = 0; column < VIEW_COLS; column++) {
-      const mapX = (firstColumn + column) % mapWidth;
-      const mapY = (firstRow + row) % mapHeight;
+      const mapX = (((firstColumn + column) % mapWidth) + mapWidth) % mapWidth;
+      const mapY = (((firstRow + row) % mapHeight) + mapHeight) % mapHeight;
       const entry = readMapEntry(vram, mapBase, mapX, mapY, mapWidth);
       if (entry === null) continue;
 
@@ -341,8 +353,8 @@ function decodeLayer(
 
       cells.mapX[count] = mapX;
       cells.mapY[count] = mapY;
-      cells.worldX[count] = column * 8 - offsetX;
-      cells.worldY[count] = row * 8 - offsetY;
+      cells.worldX[count] = (column - MARGIN_LEFT) * 8 - offsetX;
+      cells.worldY[count] = (row - MARGIN_TOP) * 8 - offsetY;
       cells.tile[count] = tile;
       // A 256-colour tile indexes the whole bank, which is palette zero here.
       cells.palette[count] = fullColour ? 0 : (entry >> 12) & 0x0f;

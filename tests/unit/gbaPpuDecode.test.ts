@@ -41,13 +41,31 @@ describe('GBA layer decoder', () => {
     expect(scene.ground[0]!.priority).toBe(1);
     expect(scene.hud[0]!.priority).toBe(0);
 
-    // The world layer is scrolled off the tile grid in both axes, so its first
-    // cell starts above and left of the screen corner.
     expect(scene.scrollX).toBe(13);
     expect(scene.scrollY).toBe(6);
+
+    // The layer is scrolled off the tile grid in both axes, and the cells must
+    // carry that: 13 is five pixels into a tile, 6 is six. Asserting the
+    // alignment rather than the first cell's position keeps this independent
+    // of how far past the screen the decoder reaches.
     const ground = scene.ground[0]!.cells;
-    expect(ground.worldX[0]).toBe(-5);
-    expect(ground.worldY[0]).toBe(-6);
+    const align = (value: number) => ((value % 8) + 8) % 8;
+    expect(align(ground.worldX[0]!)).toBe(align(-5));
+    expect(align(ground.worldY[0]!)).toBe(align(-6));
+
+    // And it reaches past every edge, so a tilted ground plane has world to
+    // stand on wherever the camera looks.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < ground.count; i++) {
+      minX = Math.min(minX, ground.worldX[i]!);
+      minY = Math.min(minY, ground.worldY[i]!);
+      maxX = Math.max(maxX, ground.worldX[i]! + 8);
+      maxY = Math.max(maxY, ground.worldY[i]! + 8);
+    }
+    expect(minX).toBeLessThan(-32);
+    expect(minY).toBeLessThan(-32);
+    expect(maxX).toBeGreaterThan(240 + 32);
+    expect(maxY).toBeGreaterThan(160 + 32);
   });
 
   it('reads object sizes, flips and priority', async () => {

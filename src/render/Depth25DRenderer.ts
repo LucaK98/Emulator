@@ -53,8 +53,13 @@ export const DEFAULT_DEPTH_SETTINGS: DepthSettings = {
 };
 
 const FOV_Y = (38 * Math.PI) / 180;
-/** One layer's worth of cells: the GBA's screen plus a tile of margin. */
-const MAX_GROUND_INSTANCES = 32 * 22;
+/**
+ * One layer's worth of cells.
+ *
+ * The decoders reach well past the console's rectangle so the tilted ground
+ * fills the screen; this has to hold the largest window either of them takes.
+ */
+const MAX_GROUND_INSTANCES = 46 * 56;
 /** The GBA's full object table; the Game Boy uses the first forty. */
 const MAX_SPRITE_INSTANCES = 128;
 /**
@@ -390,23 +395,15 @@ export class Depth25DRenderer implements SceneRenderer {
     this.uploadPalettes(scene);
     this.buildCamera();
 
-    // The scene occupies exactly the rectangle the flat renderer would use, so
-    // toggling between the two does not move or resize the picture.
-    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.disable(gl.SCISSOR_TEST);
-    gl.clearColor(0, 0, 0, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
+    // The world is not letterboxed into the console's rectangle: a tilted
+    // ground plane looks like a diorama in a box that way, and the black bars
+    // above and below are wasted screen. It fills the canvas instead, so the
+    // view reaches further up the map and further to the sides — which is the
+    // whole point of standing the world up.
     const geometry = this.decoder.geometry;
-    const frame = fitViewport(
-      this.canvas.width,
-      this.canvas.height,
-      geometry.screenWidth,
-      geometry.screenHeight,
-    );
-    gl.viewport(frame.x, frame.y, frame.width, frame.height);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.scissor(0, 0, this.canvas.width, this.canvas.height);
     gl.enable(gl.SCISSOR_TEST);
-    gl.scissor(frame.x, frame.y, frame.width, frame.height);
     gl.clearColor(0.03, 0.04, 0.06, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -436,13 +433,25 @@ export class Depth25DRenderer implements SceneRenderer {
     if (this.settings.shadow > 0) this.drawShadows(scene);
     this.drawSprites(scene);
 
-    // A HUD layer is glass, not world: flat, unlit, and always on top.
-    for (const layer of scene.hud) {
-      if (layer.cells.count === 0) continue;
-      const count = this.fillCells(layer.cells, this.windowData, false);
+    // A HUD layer is glass, not world: flat, unlit, and always on top. It
+    // keeps the console's own rectangle rather than being stretched across the
+    // screen — a text box drawn for 240 pixels stays legible at 240 pixels.
+    if (scene.hud.length > 0) {
+      const box = fitViewport(
+        this.canvas.width,
+        this.canvas.height,
+        geometry.screenWidth,
+        geometry.screenHeight,
+      );
+      gl.viewport(box.x, box.y, box.width, box.height);
       gl.disable(gl.DEPTH_TEST);
-      this.drawTiles(this.windowData, count, this.flatProj, 0, 0, false);
+      for (const layer of scene.hud) {
+        if (layer.cells.count === 0) continue;
+        const count = this.fillCells(layer.cells, this.windowData, false);
+        this.drawTiles(this.windowData, count, this.flatProj, 0, 0, false);
+      }
       gl.enable(gl.DEPTH_TEST);
+      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     }
 
     gl.disable(gl.SCISSOR_TEST);
@@ -509,7 +518,10 @@ export class Depth25DRenderer implements SceneRenderer {
     // The viewport is always the console's aspect ratio, so the scene sits in
     // the same rectangle as the flat picture.
     const { screenWidth, screenHeight } = this.decoder.geometry;
-    const aspect = screenWidth / screenHeight;
+    // The frustum matches the canvas, and the console's rectangle is what gets
+    // framed inside it. On a tall phone that means the extra room goes into
+    // seeing further up the map rather than into black bars.
+    const aspect = this.canvas.width / Math.max(1, this.canvas.height);
     const centreX = screenWidth / 2;
     const centreY = -screenHeight / 2;
     const tilt = (this.settings.tiltDegrees * Math.PI) / 180;

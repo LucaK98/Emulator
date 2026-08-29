@@ -69,6 +69,7 @@ type Phase = 'loading' | 'ready' | 'running' | 'paused' | 'error';
 export function Player({ game, baseUrl, onExit }: Props) {
   const spec = SYSTEMS[game.system];
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rootRef = useRef<HTMLElement>(null);
   const coreRef = useRef<CoreClient | null>(null);
   const inputRef = useRef(new InputState());
   const gamepadRef = useRef<GamepadReader | null>(null);
@@ -420,8 +421,10 @@ export function Player({ game, baseUrl, onExit }: Props) {
 
   /* --- Render ----------------------------------------------------------- */
 
+  useDoubleTapGuard(rootRef);
+
   return (
-    <main class="screen player">
+    <main class="screen player" ref={rootRef}>
       <div class="player-stage">
         <canvas
           key={depthMode && depthAvailable ? 'depth' : 'flat'}
@@ -536,4 +539,56 @@ function Overlay({ children }: { children: preact.ComponentChildren }) {
       <div class="overlay-card">{children}</div>
     </div>
   );
+}
+
+
+/**
+ * Stops iOS from zooming the page on a double tap.
+ *
+ * `touch-action` is supposed to settle this, and it is set on the player and
+ * on the controls — but on iOS a double tap in the gaps between buttons, or on
+ * the strip below them, still zooms. A zoomed page moves everything out from
+ * under the player's thumbs mid-game, which is about the worst moment for it.
+ *
+ * The reliable remedy is to refuse the second tap's default action. Only the
+ * second one of a quick pair is refused, so a single tap still activates a
+ * button normally; the pair has to land close together, so two deliberate taps
+ * in different places are left alone.
+ */
+function useDoubleTapGuard(ref: { current: HTMLElement | null }): void {
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    /** How close in time and space two taps must be to count as a double tap. */
+    const WINDOW_MS = 350;
+    const RADIUS_PX = 40;
+
+    let lastTime = 0;
+    let lastX = 0;
+    let lastY = 0;
+
+    const onTouchEnd = (event: TouchEvent) => {
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      const now = event.timeStamp;
+      const near =
+        Math.abs(touch.clientX - lastX) < RADIUS_PX &&
+        Math.abs(touch.clientY - lastY) < RADIUS_PX;
+
+      if (now - lastTime < WINDOW_MS && near && event.cancelable) {
+        event.preventDefault();
+        // Reset, so a third tap is a first tap again and a rapid series of
+        // presses does not go permanently dead.
+        lastTime = 0;
+        return;
+      }
+      lastTime = now;
+      lastX = touch.clientX;
+      lastY = touch.clientY;
+    };
+
+    element.addEventListener('touchend', onTouchEnd, { passive: false });
+    return () => element.removeEventListener('touchend', onTouchEnd);
+  }, [ref]);
 }

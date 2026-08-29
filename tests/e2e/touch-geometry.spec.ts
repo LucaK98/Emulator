@@ -69,4 +69,62 @@ test.describe('touch controls after the page moves', () => {
     await expect(start).not.toHaveClass(/is-pressed/);
     await page.mouse.up();
   });
+
+  /*
+   * iOS zooms the page on a double tap, and a zoomed page moves the controls
+   * out from under the player's thumbs mid-game. touch-action is supposed to
+   * settle it and does not, so the second tap of a quick pair has its default
+   * action refused. What that looks like from here is defaultPrevented on the
+   * second touchend and not on the first.
+   */
+  test('refuses the second tap of a double tap, and only that one', async ({ page }) => {
+    await page.goto('./');
+    await page.locator('input[type=file]').setInputFiles(GB_ROM);
+    await page.locator('.game-tile').first().click();
+    await page.getByRole('button', { name: 'Spielen' }).click();
+    await expect(page.locator('.touch-surface')).toBeVisible();
+
+    // Record what the page's own guard did with each touchend.
+    await page.evaluate(() => {
+      (window as unknown as { prevented: boolean[] }).prevented = [];
+      document.addEventListener(
+        'touchend',
+        (event) => {
+          (window as unknown as { prevented: boolean[] }).prevented.push(
+            event.defaultPrevented,
+          );
+        },
+        // Last in the chain, so the guard has already had its say.
+        false,
+      );
+    });
+
+    const box = (await page.locator('.touch-surface').boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+
+    await page.touchscreen.tap(x, y);
+    await page.touchscreen.tap(x, y);
+    await page.waitForTimeout(100);
+
+    const quick = await page.evaluate(
+      () => (window as unknown as { prevented: boolean[] }).prevented,
+    );
+    expect(quick, 'both taps should have been seen').toHaveLength(2);
+    expect(quick[0], 'a single tap must still work normally').toBe(false);
+    expect(quick[1], 'the second of a quick pair is refused').toBe(true);
+
+    // A tap well away from the last one is a first tap again, not a double.
+    await page.evaluate(() => {
+      (window as unknown as { prevented: boolean[] }).prevented = [];
+    });
+    await page.touchscreen.tap(x, y);
+    await page.touchscreen.tap(x + 120, y);
+    await page.waitForTimeout(100);
+
+    const apart = await page.evaluate(
+      () => (window as unknown as { prevented: boolean[] }).prevented,
+    );
+    expect(apart).toEqual([false, false]);
+  });
 });
