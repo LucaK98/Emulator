@@ -16,7 +16,16 @@
  * carrying stale heights forward, and heights move gradually so nothing pops.
  */
 
-import { MAX_TILES, type GbScene } from './ppu/decode';
+import type { CellArrays, DepthScene } from './ppu/scene';
+
+/**
+ * Tiles the model can track.
+ *
+ * Sized for the largest atlas any console produces rather than per system: the
+ * arrays are a few kilobytes either way, and one constant is easier to reason
+ * about than a model that has to be rebuilt when the console changes.
+ */
+const MAX_TILES = 3072;
 
 /** Appearances before a never-stood-on tile is allowed to rise. */
 const SEEN_THRESHOLD = 90;
@@ -74,7 +83,7 @@ export class TileHeightModel {
   }
 
   /** Folds one frame of evidence in and advances the smoothed heights. */
-  update(scene: GbScene): void {
+  update(scene: DepthScene): void {
     this.frames++;
 
     const moved = scene.scrollX !== this.lastScrollX || scene.scrollY !== this.lastScrollY;
@@ -122,25 +131,32 @@ export class TileHeightModel {
     return count;
   }
 
-  private observe(scene: GbScene): void {
-    const ground = scene.ground;
+  private observe(scene: DepthScene): void {
+    const { screenWidth, screenHeight } = scene.geometry;
 
-    for (let i = 0; i < ground.count; i++) {
-      const tile = ground.tile[i]!;
-      // Only cells actually on screen count, not the off-screen margin.
-      const x = ground.worldX[i]!;
-      const y = ground.worldY[i]!;
-      if (x < -8 || x > 160 || y < -8 || y > 144) continue;
-      this.seen[tile] = this.seen[tile]! + 1;
+    for (const layer of scene.ground) {
+      const cells = layer.cells;
+      for (let i = 0; i < cells.count; i++) {
+        // Only cells actually on screen count, not the off-screen margin.
+        const x = cells.worldX[i]!;
+        const y = cells.worldY[i]!;
+        if (x < -8 || x > screenWidth || y < -8 || y > screenHeight) continue;
+        const tile = cells.tile[i]!;
+        if (tile < MAX_TILES) this.seen[tile] = this.seen[tile]! + 1;
+      }
     }
 
-    // Wherever a character's feet are, the tile underneath is walkable.
+    // Wherever a character's feet are, the tile underneath is walkable. Every
+    // world layer is marked, because a character stands on the composite of
+    // them, not on any one in particular.
     const sprites = scene.sprites;
     for (let s = 0; s < sprites.count; s++) {
-      const footX = sprites.x[s]! + 4;
+      const footX = sprites.x[s]! + sprites.width[s]! / 2;
       const footY = sprites.y[s]! + sprites.height[s]! - 2;
-      const tile = tileAt(ground, footX, footY);
-      if (tile >= 0) this.floor[tile] = this.floor[tile]! + 1;
+      for (const layer of scene.ground) {
+        const tile = tileAt(layer.cells, footX, footY);
+        if (tile >= 0 && tile < MAX_TILES) this.floor[tile] = this.floor[tile]! + 1;
+      }
     }
   }
 
@@ -159,11 +175,11 @@ export class TileHeightModel {
 }
 
 /** Tile number of the ground cell containing a screen position, or -1. */
-function tileAt(ground: GbScene['ground'], x: number, y: number): number {
-  for (let i = 0; i < ground.count; i++) {
-    const cx = ground.worldX[i]!;
-    const cy = ground.worldY[i]!;
-    if (x >= cx && x < cx + 8 && y >= cy && y < cy + 8) return ground.tile[i]!;
+function tileAt(cells: CellArrays, x: number, y: number): number {
+  for (let i = 0; i < cells.count; i++) {
+    const cx = cells.worldX[i]!;
+    const cy = cells.worldY[i]!;
+    if (x >= cx && x < cx + 8 && y >= cy && y < cy + 8) return cells.tile[i]!;
   }
   return -1;
 }

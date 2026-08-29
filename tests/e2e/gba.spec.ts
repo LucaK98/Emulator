@@ -5,6 +5,9 @@ const GBA_ROM = fileURLToPath(new URL('../roms/arm.gba', import.meta.url));
 const FAR_CART_ROM = fileURLToPath(
   new URL('../roms/gba-farcart-probe.gba', import.meta.url),
 );
+const DEPTH_ROM = fileURLToPath(
+  new URL('../roms/gba-depth-probe.gba', import.meta.url),
+);
 
 /** Native Game Boy Advance resolution. */
 const GBA_ASPECT = 240 / 160;
@@ -75,16 +78,34 @@ test.describe('Game Boy Advance', () => {
       .toEqual(expected);
   });
 
-  test('offers no 2.5D for a system the depth renderer does not cover', async ({ page }) => {
+  test('offers 2.5D and switches the picture when it is turned on', async ({ page }) => {
     await page.goto('./');
-    await page.locator('input[type=file]').setInputFiles(GBA_ROM);
+    await page.locator('input[type=file]').setInputFiles(DEPTH_ROM);
     await page.locator('.game-tile').first().click();
     await page.getByRole('button', { name: 'Spielen' }).click();
-    await page.waitForTimeout(400);
+    await expect
+      .poll(() => canvasColourCount(page), { timeout: 20_000, intervals: [500] })
+      .toBeGreaterThan(1);
+
+    const flat = await drawnAspect(page);
+    expect(flat).toBeCloseTo(GBA_ASPECT, 1);
 
     await page.getByRole('button', { name: 'Menü' }).click();
-    await expect(page.locator('.depth-panel')).toContainText('Game Boy Advance');
-    await expect(page.getByRole('button', { name: /2\.5D (an|aus)/ })).toBeHidden();
+    const toggle = page.getByRole('button', { name: /2\.5D (an|aus)/ });
+    await expect(toggle).toBeVisible();
+    await toggle.click();
+    await page.getByRole('button', { name: 'Weiter' }).click();
+    await page.waitForTimeout(1500);
+
+    // The scene is rebuilt from the hardware's layers rather than shown as the
+    // finished picture, so the colours are still the game's but the geometry
+    // is not: a tilted ground plane no longer fills the console's rectangle
+    // the way the flat picture does.
+    await expect
+      .poll(() => canvasColourCount(page), { timeout: 10_000, intervals: [500] })
+      .toBeGreaterThan(1);
+    const tilted = await drawnAspect(page);
+    expect(tilted).not.toBeCloseTo(GBA_ASPECT, 2);
   });
 });
 

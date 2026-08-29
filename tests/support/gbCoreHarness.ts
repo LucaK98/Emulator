@@ -12,7 +12,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { capturePpu } from '../../src/cores/gb/capturePpu';
 import { PPU_BLOCK_BYTES } from '../../src/core/protocol';
-import { PpuDecoder, type GbScene } from '../../src/render/ppu/decode';
+import { PpuDecoder } from '../../src/render/ppu/decode';
+import type { DepthScene } from '../../src/render/ppu/scene';
 import type { SameBoyFactory, SameBoyModule } from '../../src/cores/gb/sameboyModule';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -30,7 +31,7 @@ export interface LoadedCore {
   /** Stable hash of the current screen contents. */
   screenHash(): string;
   /** Decodes the current PPU state back into separate layers. */
-  scene(): GbScene;
+  scene(): DepthScene;
 }
 
 export async function loadCore(romPath: string, model = GB_MODEL_DMG_B): Promise<LoadedCore> {

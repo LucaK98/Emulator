@@ -26,7 +26,9 @@
 #include <mgba/internal/gba/gba.h>
 #include <mgba/internal/gba/input.h>
 #include <mgba/internal/gba/memory.h>
+#include <mgba/internal/gba/io.h>
 #include <mgba/internal/gba/savedata.h>
+#include <mgba/internal/gba/video.h>
 #include <mgba-util/vfs.h>
 
 #define GBA_SCREEN_W 240
@@ -36,6 +38,17 @@
 #define AUDIO_CAPACITY_FRAMES 8192
 /* mGBA's internal audio buffer, in samples per channel. */
 #define CORE_AUDIO_BUFFER 1024
+
+/*
+ * Per-scanline register log, for the 2.5D renderer.
+ *
+ * Games change scroll and layer settings mid-frame — that is how a status bar
+ * stays put while the map moves under it — so a single reading taken at the
+ * end of a frame describes none of it correctly. Sixteen slots a line leaves
+ * room beyond the thirteen in use.
+ */
+#define GBA_SCANLINES 160
+#define GBA_SCANLINE_SLOTS 16
 
 /* Largest GBA save: 128 KiB flash. Smaller carts simply use less of it. */
 #define SAVEDATA_CAPACITY SIZE_CART_FLASH1M
@@ -69,6 +82,43 @@ typedef struct {
 } core_t;
 
 static core_t gba;
+
+static uint16_t scanline_log[GBA_SCANLINES * GBA_SCANLINE_SLOTS];
+
+/* --- Per-scanline capture ----------------------------------------------- */
+
+/*
+ * The renderer's own drawScanline, kept so the hook below can hand the work on.
+ *
+ * Only the one function pointer is swapped rather than the whole renderer
+ * being wrapped in a struct of ours: mGBA fills several fields of that struct
+ * during reset, and a copy would go stale the moment it did.
+ */
+static void (*forward_draw_scanline)(struct GBAVideoRenderer *renderer, int y);
+
+static void logging_draw_scanline(struct GBAVideoRenderer *renderer, int y)
+{
+    if (y >= 0 && y < GBA_SCANLINES && gba.core && gba.core->board) {
+        /* Every video register write passes through memory.io, the write-only
+         * scroll registers included, so this is the whole picture. */
+        const uint16_t *io = ((struct GBA *)gba.core->board)->memory.io;
+        uint16_t *out = &scanline_log[y * GBA_SCANLINE_SLOTS];
+        out[0] = io[REG_DISPCNT >> 1];
+        for (int i = 0; i < 4; i++) out[1 + i] = io[(REG_BG0CNT >> 1) + i];
+        /* BG0HOFS, BG0VOFS, BG1HOFS ... BG3VOFS sit in consecutive slots. */
+        for (int i = 0; i < 8; i++) out[5 + i] = io[(REG_BG0HOFS >> 1) + i];
+    }
+    forward_draw_scanline(renderer, y);
+}
+
+static void install_scanline_hook(void)
+{
+    if (!gba.core || !gba.core->board) return;
+    struct GBAVideoRenderer *renderer = ((struct GBA *)gba.core->board)->video.renderer;
+    if (!renderer || renderer->drawScanline == logging_draw_scanline) return;
+    forward_draw_scanline = renderer->drawScanline;
+    renderer->drawScanline = logging_draw_scanline;
+}
 
 /* --- Logging ------------------------------------------------------------ */
 
@@ -132,6 +182,7 @@ void gbaw_init(int model)
         memset(gba.savedata, 0xFF, SAVEDATA_CAPACITY);
     }
 
+    install_scanline_hook();
     gba.open = true;
 }
 
@@ -175,6 +226,7 @@ int gbaw_load_rom(const uint8_t *data, int size)
     }
 
     gba.core->reset(gba.core);
+    install_scanline_hook();
     apply_sample_rate();
     gba.rom_loaded = true;
     return 0;
@@ -183,8 +235,65 @@ int gbaw_load_rom(const uint8_t *data, int size)
 EMSCRIPTEN_KEEPALIVE
 void gbaw_reset(void)
 {
-    if (gba.open && gba.core && gba.rom_loaded) gba.core->reset(gba.core);
+    if (!gba.open || !gba.core || !gba.rom_loaded) return;
+    gba.core->reset(gba.core);
+    install_scanline_hook();
 }
+
+/* --- PPU state, for the 2.5D renderer ----------------------------------- */
+
+/*
+ * The depth renderer rebuilds the scene from hardware state rather than from
+ * the finished picture, so it needs the memory the picture was drawn from.
+ * These hand out pointers into the core's own buffers; the worker copies from
+ * them and never writes.
+ */
+
+static struct GBAVideoRenderer *video_renderer(void)
+{
+    if (!gba.open || !gba.core || !gba.core->board) return NULL;
+    return ((struct GBA *)gba.core->board)->video.renderer;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint16_t *gbaw_vram(void)
+{
+    struct GBAVideoRenderer *renderer = video_renderer();
+    return renderer ? renderer->vram : NULL;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint16_t *gbaw_palette(void)
+{
+    struct GBAVideoRenderer *renderer = video_renderer();
+    return renderer ? renderer->palette : NULL;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint16_t *gbaw_oam(void)
+{
+    struct GBAVideoRenderer *renderer = video_renderer();
+    return renderer ? (uint16_t *)renderer->oam : NULL;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint16_t *gbaw_io(void)
+{
+    if (!gba.open || !gba.core || !gba.core->board) return NULL;
+    return ((struct GBA *)gba.core->board)->memory.io;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint16_t *gbaw_scanline_log(void) { return scanline_log; }
+
+EMSCRIPTEN_KEEPALIVE
+int gbaw_vram_bytes(void) { return SIZE_VRAM; }
+
+EMSCRIPTEN_KEEPALIVE
+int gbaw_oam_bytes(void) { return SIZE_OAM; }
+
+EMSCRIPTEN_KEEPALIVE
+int gbaw_palette_bytes(void) { return SIZE_PALETTE_RAM; }
 
 /* --- Running ------------------------------------------------------------ */
 

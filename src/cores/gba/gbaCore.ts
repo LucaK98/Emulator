@@ -4,6 +4,7 @@
 
 import { AUDIO_CHANNELS, SYSTEMS } from '../../core/protocol';
 import { readHeapBuffer, withHeapBuffer, type EmulatorCore } from '../EmulatorCore';
+import { capturePpu } from './capturePpu';
 import type { MgbaFactory, MgbaModule } from './mgbaModule';
 
 const FRAME_PIXELS = SYSTEMS.gba.width * SYSTEMS.gba.height;
@@ -98,5 +99,9 @@ class GbaCore implements EmulatorCore {
         this.module._gbaw_load_state(ptr, bytes.length),
       ) === 0
     );
+  }
+
+  capturePpu(target: Uint8Array): void {
+    capturePpu(this.module, target);
   }
 }

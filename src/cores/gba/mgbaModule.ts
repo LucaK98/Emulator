@@ -29,6 +29,13 @@ export interface MgbaModule {
   /** Detected save type; -1 until the game first touches its save memory. */
   _gbaw_savedata_type(): number;
 
+  /* PPU state for the 2.5D renderer; pointers into the core's own memory. */
+  _gbaw_vram(): number;
+  _gbaw_palette(): number;
+  _gbaw_oam(): number;
+  _gbaw_io(): number;
+  _gbaw_scanline_log(): number;
+
   _gbaw_state_size(): number;
   _gbaw_save_state(ptr: number, size: number): number;
   _gbaw_load_state(ptr: number, size: number): number;

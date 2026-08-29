@@ -16,16 +16,20 @@
  * the same here as in the flat renderer apart from the perspective.
  */
 
-import { GB_SCREEN_HEIGHT, GB_SCREEN_WIDTH } from '../core/protocol';
+import type { SystemSpec } from '../core/systems';
 import { TileHeightModel } from './heightModel';
-import {
-  ATLAS_HEIGHT,
-  ATLAS_TILES_PER_ROW,
-  ATLAS_WIDTH,
-  PpuDecoder,
-  type CellArrays,
-  type GbScene,
-} from './ppu/decode';
+import { PpuDecoder } from './ppu/decode';
+import { GbaPpuDecoder } from './ppu/decodeGba';
+import type { CellArrays, DepthScene, SceneGeometry } from './ppu/scene';
+
+/**
+ * What the renderer needs of a console's decoder: the shape of its tiles and
+ * palettes up front, and a decoded frame on demand.
+ */
+export interface FrameDecoder {
+  readonly geometry: SceneGeometry;
+  decode(block: Uint8Array): DepthScene;
+}
 import { fitViewport } from './GLRenderer';
 import { identity, lookAt, multiply, orthographic, perspective, type Mat4 } from './mat4';
 import type { SceneRenderer } from './SceneRenderer';
@@ -49,10 +53,15 @@ export const DEFAULT_DEPTH_SETTINGS: DepthSettings = {
 };
 
 const FOV_Y = (38 * Math.PI) / 180;
-const MAX_GROUND_INSTANCES = 22 * 20;
-const MAX_SPRITE_INSTANCES = 40;
-/** Floats per instance: worldX, worldY, tile, palette, flip, height. */
-const INSTANCE_FLOATS = 6;
+/** One layer's worth of cells: the GBA's screen plus a tile of margin. */
+const MAX_GROUND_INSTANCES = 32 * 22;
+/** The GBA's full object table; the Game Boy uses the first forty. */
+const MAX_SPRITE_INSTANCES = 128;
+/**
+ * Floats per instance: worldX, worldY, tile, palette, flip, height, width and
+ * the sprite's tile stride — how many tiles along its rows step.
+ */
+const INSTANCE_FLOATS = 8;
 
 /* --- Shaders ------------------------------------------------------------ */
 
@@ -91,7 +100,7 @@ void main() {
   v_shade = a_shade;
 }`;
 
-const TILE_FRAGMENT = `#version 300 es
+const tileFragment = (g: SceneGeometry) => `#version 300 es
 precision highp float;
 precision highp int;
 precision highp usampler2D;
@@ -116,8 +125,8 @@ void main() {
   if ((v_flip & 2) != 0) ty = 7 - ty;
 
   ivec2 texel = ivec2(
-    (v_tile % ${ATLAS_TILES_PER_ROW}) * 8 + tx,
-    (v_tile / ${ATLAS_TILES_PER_ROW}) * 8 + ty
+    (v_tile % ${g.atlasTilesPerRow}) * 8 + tx,
+    (v_tile / ${g.atlasTilesPerRow}) * 8 + ty
   );
   uint index = texelFetch(u_atlas, texel, 0).r;
   if (u_discardZero == 1 && index == 0u) discard;
@@ -130,7 +139,8 @@ const SPRITE_VERTEX = `#version 300 es
 in vec2 a_local;      // 0..1 across the sprite, v = 0 at the top
 
 in vec2 a_instPos;    // sprite top-left in screen pixels
-in vec4 a_instData;   // tile, palette, flip bits, pixel height (8 or 16)
+in vec4 a_instData;   // tile, palette, flip bits, pixel height
+in vec2 a_instExtra;  // pixel width, tiles one row of its tile block steps
 
 uniform mat4 u_viewProj;
 uniform float u_stand;
@@ -140,10 +150,13 @@ flat out int v_tile;
 flat out int v_palette;
 flat out int v_flip;
 flat out int v_height;
+flat out int v_width;
+flat out int v_stride;
 
 void main() {
   float height = a_instData.w;
-  float x = a_instPos.x + a_local.x * 8.0;
+  float width = a_instExtra.x;
+  float x = a_instPos.x + a_local.x * width;
 
   // Lying flat, the sprite covers the rows it occupies on screen. Standing up,
   // it is hinged at its feet and rises out of the ground.
@@ -156,9 +169,11 @@ void main() {
   v_palette = int(a_instData.y);
   v_flip = int(a_instData.z);
   v_height = int(height);
+  v_width = int(width);
+  v_stride = int(a_instExtra.y);
 }`;
 
-const SPRITE_FRAGMENT = `#version 300 es
+const spriteFragment = (g: SceneGeometry) => `#version 300 es
 precision highp float;
 precision highp int;
 precision highp usampler2D;
@@ -168,6 +183,8 @@ flat in int v_tile;
 flat in int v_palette;
 flat in int v_flip;
 flat in int v_height;
+flat in int v_width;
+flat in int v_stride;
 
 uniform usampler2D u_atlas;
 uniform sampler2D u_palette;
@@ -175,24 +192,26 @@ uniform sampler2D u_palette;
 out vec4 outColor;
 
 void main() {
-  float v = clamp(v_local.y, 0.0, 0.9999);
-  int row = int(floor(v * float(v_height)));
-  int column = int(floor(clamp(v_local.x, 0.0, 0.9999) * 8.0));
-  if ((v_flip & 1) != 0) column = 7 - column;
-  if ((v_flip & 2) != 0) row = v_height - 1 - row;
+  // Flipping applies to the whole object, not tile by tile, so it is done to
+  // the pixel position before the tile it falls in is worked out.
+  int px = int(floor(clamp(v_local.x, 0.0, 0.9999) * float(v_width)));
+  int py = int(floor(clamp(v_local.y, 0.0, 0.9999) * float(v_height)));
+  if ((v_flip & 1) != 0) px = v_width - 1 - px;
+  if ((v_flip & 2) != 0) py = v_height - 1 - py;
 
-  // A tall object is two tiles stacked; the row decides which half.
-  int tile = v_tile + (row >= 8 ? 1 : 0);
-  int ty = row & 7;
+  // An object bigger than one tile is a block of them. How far one row of that
+  // block steps depends on the console's object mapping, so the stride travels
+  // with the object rather than being fixed here.
+  int tile = v_tile + (py / 8) * v_stride + (px / 8);
 
   ivec2 texel = ivec2(
-    (tile % ${ATLAS_TILES_PER_ROW}) * 8 + column,
-    (tile / ${ATLAS_TILES_PER_ROW}) * 8 + ty
+    (tile % ${g.atlasTilesPerRow}) * 8 + (px & 7),
+    (tile / ${g.atlasTilesPerRow}) * 8 + (py & 7)
   );
   uint index = texelFetch(u_atlas, texel, 0).r;
   if (index == 0u) discard;   // colour 0 is transparent for objects
 
-  outColor = texelFetch(u_palette, ivec2(int(index), 8 + v_palette), 0);
+  outColor = texelFetch(u_palette, ivec2(int(index), ${g.paletteCount} + v_palette), 0);
 }`;
 
 const SHADOW_VERTEX = `#version 300 es
@@ -224,6 +243,31 @@ void main() {
   outColor = vec4(0.0, 0.0, 0.0, alpha);
 }`;
 
+/*
+ * A plain textured quad, for frames the depth renderer cannot take apart.
+ *
+ * The rotating and bitmap modes have no grid of tiles to give height to, and a
+ * game drops into one for a cut scene or a transition without warning. Showing
+ * the finished picture for those frames keeps the game watchable instead of
+ * going black until it returns to a mode with layers.
+ */
+const FLAT_VERTEX = `#version 300 es
+in vec2 a_local;
+out vec2 v_uv;
+void main() {
+  v_uv = vec2(a_local.x, 1.0 - a_local.y);
+  gl_Position = vec4(a_local * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const FLAT_FRAGMENT = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_frame;
+out vec4 outColor;
+void main() {
+  outColor = vec4(texture(u_frame, v_uv).rgb, 1.0);
+}`;
+
 /* --- Renderer ----------------------------------------------------------- */
 
 export class Depth25DRenderer implements SceneRenderer {
@@ -232,7 +276,6 @@ export class Depth25DRenderer implements SceneRenderer {
   settings: DepthSettings = { ...DEFAULT_DEPTH_SETTINGS };
   readonly heights = new TileHeightModel();
 
-  private readonly decoder = new PpuDecoder();
   private readonly viewProj: Mat4 = identity();
   private readonly flatProj: Mat4 = identity();
   private readonly view: Mat4 = identity();
@@ -242,11 +285,13 @@ export class Depth25DRenderer implements SceneRenderer {
   private readonly windowData = new Float32Array(MAX_GROUND_INSTANCES * INSTANCE_FLOATS);
   private readonly spriteData = new Float32Array(MAX_SPRITE_INSTANCES * INSTANCE_FLOATS);
   private readonly shadowData = new Float32Array(MAX_SPRITE_INSTANCES * INSTANCE_FLOATS);
-  private readonly paletteBytes = new Uint8Array(4 * 16 * 4);
+  /** Sized for the widest palette layout either console uses. */
+  private readonly paletteBytes = new Uint8Array(16 * 32 * 4);
 
   private disposed = false;
 
   private constructor(
+    private readonly decoder: FrameDecoder,
     private readonly canvas: HTMLCanvasElement,
     private readonly gl: WebGL2RenderingContext,
     private readonly tileProgram: WebGLProgram,
@@ -260,9 +305,16 @@ export class Depth25DRenderer implements SceneRenderer {
     private readonly spriteInstances: WebGLBuffer,
     private readonly shadowVao: WebGLVertexArrayObject,
     private readonly shadowInstances: WebGLBuffer,
+    private readonly flatProgram: WebGLProgram,
+    private readonly flatVao: WebGLVertexArrayObject,
+    private readonly frameTexture: WebGLTexture,
   ) {}
 
-  static create(canvas: HTMLCanvasElement): Depth25DRenderer | null {
+  static create(canvas: HTMLCanvasElement, spec: SystemSpec): Depth25DRenderer | null {
+    const decoder: FrameDecoder =
+      spec.id === 'gba' ? new GbaPpuDecoder() : new PpuDecoder();
+    const geometry = decoder.geometry;
+
     const gl = canvas.getContext('webgl2', {
       alpha: false,
       antialias: true,
@@ -272,18 +324,25 @@ export class Depth25DRenderer implements SceneRenderer {
     });
     if (!gl) return null;
 
-    const tileProgram = createProgram(gl, TILE_VERTEX, TILE_FRAGMENT);
-    const spriteProgram = createProgram(gl, SPRITE_VERTEX, SPRITE_FRAGMENT);
+    // The atlas and palette shapes differ per console, and the shader needs
+    // them as compile-time constants, so the programs are built per system.
+    const tileProgram = createProgram(gl, TILE_VERTEX, tileFragment(geometry));
+    const spriteProgram = createProgram(gl, SPRITE_VERTEX, spriteFragment(geometry));
     const shadowProgram = createProgram(gl, SHADOW_VERTEX, SHADOW_FRAGMENT);
 
-    const atlasTexture = createAtlasTexture(gl);
-    const paletteTexture = createPaletteTexture(gl);
+    const atlasTexture = createAtlasTexture(gl, geometry);
+    const paletteTexture = createPaletteTexture(gl, geometry);
+
+    const flatProgram = createProgram(gl, FLAT_VERTEX, FLAT_FRAGMENT);
+    const flatVao = createFlatQuad(gl, flatProgram);
+    const frameTexture = createFrameTexture(gl, geometry);
 
     const box = createBoxGeometry(gl, tileProgram);
     const sprite = createQuadGeometry(gl, spriteProgram);
     const shadow = createQuadGeometry(gl, shadowProgram);
 
     return new Depth25DRenderer(
+      decoder,
       canvas,
       gl,
       tileProgram,
@@ -297,6 +356,9 @@ export class Depth25DRenderer implements SceneRenderer {
       sprite.instances,
       shadow.vao,
       shadow.instances,
+      flatProgram,
+      flatVao,
+      frameTexture,
     );
   }
 
@@ -310,10 +372,17 @@ export class Depth25DRenderer implements SceneRenderer {
     }
   }
 
-  render(_pixels: Uint32Array, ppuBlock: Uint8Array | null): void {
+  render(pixels: Uint32Array, ppuBlock: Uint8Array | null): void {
     if (this.disposed || !ppuBlock) return;
 
     const scene = this.decoder.decode(ppuBlock);
+    if (!scene.displayOn) {
+      // Nothing to build a scene from: either the display is off, or the game
+      // is in a mode with no tiles. Either way the finished picture is the
+      // honest thing to show.
+      this.drawFlat(pixels);
+      return;
+    }
     this.heights.update(scene);
 
     const gl = this.gl;
@@ -328,11 +397,12 @@ export class Depth25DRenderer implements SceneRenderer {
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+    const geometry = this.decoder.geometry;
     const frame = fitViewport(
       this.canvas.width,
       this.canvas.height,
-      GB_SCREEN_WIDTH,
-      GB_SCREEN_HEIGHT,
+      geometry.screenWidth,
+      geometry.screenHeight,
     );
     gl.viewport(frame.x, frame.y, frame.width, frame.height);
     gl.enable(gl.SCISSOR_TEST);
@@ -344,17 +414,32 @@ export class Depth25DRenderer implements SceneRenderer {
     gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.BLEND);
 
-    if (scene.bgEnabled) {
-      const count = this.fillCells(scene.ground, this.groundData, true);
-      this.drawTiles(this.groundData, count, this.viewProj, this.settings.extrusion, 0, false);
+    // Back to front, so a layer the hardware draws in front covers the ones
+    // behind it. Only the hindmost carries height: raising every layer would
+    // extrude the same scenery several times over.
+    for (let i = 0; i < scene.ground.length; i++) {
+      const layer = scene.ground[i]!;
+      if (layer.cells.count === 0) continue;
+      const count = this.fillCells(layer.cells, this.groundData, i === 0);
+      this.drawTiles(
+        this.groundData,
+        count,
+        this.viewProj,
+        this.settings.extrusion,
+        0,
+        // Everything above the hindmost layer has a transparent colour zero;
+        // without discarding it the layers below would be painted over.
+        i > 0,
+      );
     }
 
     if (this.settings.shadow > 0) this.drawShadows(scene);
     this.drawSprites(scene);
 
-    if (scene.window.count > 0) {
-      // The window is glass, not world: flat, unlit, and always on top.
-      const count = this.fillCells(scene.window, this.windowData, false);
+    // A HUD layer is glass, not world: flat, unlit, and always on top.
+    for (const layer of scene.hud) {
+      if (layer.cells.count === 0) continue;
+      const count = this.fillCells(layer.cells, this.windowData, false);
       gl.disable(gl.DEPTH_TEST);
       this.drawTiles(this.windowData, count, this.flatProj, 0, 0, false);
       gl.enable(gl.DEPTH_TEST);
@@ -380,21 +465,60 @@ export class Depth25DRenderer implements SceneRenderer {
     gl.deleteBuffer(this.shadowInstances);
   }
 
+  /** Draws the emulator's own picture, for frames with no layers to rebuild. */
+  private drawFlat(pixels: Uint32Array): void {
+    const gl = this.gl;
+    const { screenWidth, screenHeight } = this.decoder.geometry;
+    if (pixels.length < screenWidth * screenHeight) return;
+
+    gl.bindTexture(gl.TEXTURE_2D, this.frameTexture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    gl.texSubImage2D(
+      gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      screenWidth,
+      screenHeight,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      new Uint8Array(pixels.buffer, pixels.byteOffset, screenWidth * screenHeight * 4),
+    );
+
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.disable(gl.DEPTH_TEST);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const frame = fitViewport(this.canvas.width, this.canvas.height, screenWidth, screenHeight);
+    gl.viewport(frame.x, frame.y, frame.width, frame.height);
+
+    gl.useProgram(this.flatProgram);
+    gl.bindVertexArray(this.flatVao);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.frameTexture);
+    gl.uniform1i(this.uniform(this.flatProgram, 'u_frame'), 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.enable(gl.DEPTH_TEST);
+  }
+
   /* --- internals ------------------------------------------------------- */
 
   private buildCamera(): void {
     // The viewport is always the console's aspect ratio, so the scene sits in
     // the same rectangle as the flat picture.
-    const aspect = GB_SCREEN_WIDTH / GB_SCREEN_HEIGHT;
-    const centreX = GB_SCREEN_WIDTH / 2;
-    const centreY = -GB_SCREEN_HEIGHT / 2;
+    const { screenWidth, screenHeight } = this.decoder.geometry;
+    const aspect = screenWidth / screenHeight;
+    const centreX = screenWidth / 2;
+    const centreY = -screenHeight / 2;
     const tilt = (this.settings.tiltDegrees * Math.PI) / 180;
 
     // Frame the screen area by fitting it, then correcting once for how much of
     // the frustum it actually filled. One correction is enough because at these
     // distances the projected size is very nearly inversely proportional to
     // the camera distance.
-    let distance = (GB_SCREEN_HEIGHT / 2 / Math.tan(FOV_Y / 2)) * 1.2;
+    let distance = (screenHeight / 2 / Math.tan(FOV_Y / 2)) * 1.2;
     for (let pass = 0; pass < 2; pass++) {
       this.placeCamera(distance, tilt, centreX, centreY, aspect);
       const fill = this.projectedFill();
@@ -402,7 +526,7 @@ export class Depth25DRenderer implements SceneRenderer {
     }
     this.placeCamera(distance, tilt, centreX, centreY, aspect);
 
-    orthographic(this.flatProj, 0, GB_SCREEN_WIDTH, -GB_SCREEN_HEIGHT, 0, -1, 1);
+    orthographic(this.flatProj, 0, screenWidth, -screenHeight, 0, -1, 1);
   }
 
   private placeCamera(
@@ -428,10 +552,11 @@ export class Depth25DRenderer implements SceneRenderer {
    * the visible ground including the tallest possible extrusion.
    */
   private projectedFill(): number {
+    const { screenWidth, screenHeight } = this.decoder.geometry;
     const top = this.settings.extrusion;
     let extent = 0;
-    for (const x of [0, GB_SCREEN_WIDTH]) {
-      for (const y of [0, -GB_SCREEN_HEIGHT]) {
+    for (const x of [0, screenWidth]) {
+      for (const y of [0, -screenHeight]) {
         for (const z of [0, top]) {
           const clipX =
             this.viewProj[0]! * x + this.viewProj[4]! * y + this.viewProj[8]! * z + this.viewProj[12]!;
@@ -485,7 +610,7 @@ export class Depth25DRenderer implements SceneRenderer {
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 30, count);
   }
 
-  private drawSprites(scene: GbScene): void {
+  private drawSprites(scene: DepthScene): void {
     const sprites = scene.sprites;
     if (sprites.count === 0) return;
 
@@ -497,6 +622,8 @@ export class Depth25DRenderer implements SceneRenderer {
       this.spriteData[base + 3] = sprites.palette[i]!;
       this.spriteData[base + 4] = sprites.flip[i]!;
       this.spriteData[base + 5] = sprites.height[i]!;
+      this.spriteData[base + 6] = sprites.width[i]!;
+      this.spriteData[base + 7] = sprites.tileStride[i]!;
     }
 
     const gl = this.gl;
@@ -512,16 +639,17 @@ export class Depth25DRenderer implements SceneRenderer {
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, sprites.count);
   }
 
-  private drawShadows(scene: GbScene): void {
+  private drawShadows(scene: DepthScene): void {
     const sprites = scene.sprites;
     if (sprites.count === 0) return;
 
     for (let i = 0; i < sprites.count; i++) {
       const base = i * INSTANCE_FLOATS;
-      this.shadowData[base] = sprites.x[i]! + 4;
+      this.shadowData[base] = sprites.x[i]! + sprites.width[i]! / 2;
       this.shadowData[base + 1] = sprites.y[i]! + sprites.height[i]! - 2;
-      this.shadowData[base + 2] = 6; // radius x
-      this.shadowData[base + 3] = 3; // radius y, squashed to sit on the ground
+      // Roughly the object's own footprint, squashed to lie on the ground.
+      this.shadowData[base + 2] = sprites.width[i]! * 0.4;
+      this.shadowData[base + 3] = sprites.width[i]! * 0.2;
       this.shadowData[base + 4] = 0;
       this.shadowData[base + 5] = 0;
     }
@@ -553,7 +681,7 @@ export class Depth25DRenderer implements SceneRenderer {
     gl.uniform1i(this.uniform(program, 'u_palette'), 1);
   }
 
-  private uploadAtlas(scene: GbScene): void {
+  private uploadAtlas(scene: DepthScene): void {
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTexture);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -562,20 +690,23 @@ export class Depth25DRenderer implements SceneRenderer {
       0,
       0,
       0,
-      ATLAS_WIDTH,
-      ATLAS_HEIGHT,
+      scene.geometry.atlasWidth,
+      scene.geometry.atlasHeight,
       gl.RED_INTEGER,
       gl.UNSIGNED_BYTE,
       scene.tileAtlas,
     );
   }
 
-  private uploadPalettes(scene: GbScene): void {
-    // Rows 0..7 are background palettes, 8..15 objects; four colours each.
+  private uploadPalettes(scene: DepthScene): void {
+    // One row per palette: the background bank first, then the object bank.
+    const { paletteSize, paletteCount } = scene.geometry;
+    const entries = paletteSize * paletteCount;
+
     const write = (source: Uint32Array, rowOffset: number) => {
-      for (let entry = 0; entry < 32; entry++) {
+      for (let entry = 0; entry < entries; entry++) {
         const colour = source[entry]! >>> 0;
-        const target = (rowOffset * 4 + entry) * 4;
+        const target = (rowOffset * paletteSize + entry) * 4;
         this.paletteBytes[target] = colour & 0xff;
         this.paletteBytes[target + 1] = (colour >> 8) & 0xff;
         this.paletteBytes[target + 2] = (colour >> 16) & 0xff;
@@ -583,12 +714,22 @@ export class Depth25DRenderer implements SceneRenderer {
       }
     };
     write(scene.bgPalettes, 0);
-    write(scene.objPalettes, 8);
+    write(scene.objPalettes, paletteCount);
 
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 4, 16, gl.RGBA, gl.UNSIGNED_BYTE, this.paletteBytes);
+    gl.texSubImage2D(
+      gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      paletteSize,
+      paletteCount * 2,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      this.paletteBytes,
+    );
   }
 
   private uniform(program: WebGLProgram, name: string): WebGLUniformLocation | null {
@@ -762,6 +903,8 @@ function bindInstanceAttributes(gl: WebGL2RenderingContext, program: WebGLProgra
   const stride = INSTANCE_FLOATS * 4;
   bindAttribute(gl, program, 'a_instPos', 2, stride, 0, 1);
   bindAttribute(gl, program, 'a_instData', 4, stride, 2 * 4, 1);
+  // Only the sprite program declares this one; the helper skips it elsewhere.
+  bindAttribute(gl, program, 'a_instExtra', 2, stride, 6 * 4, 1);
 }
 
 function bindAttribute(
@@ -780,12 +923,15 @@ function bindAttribute(
   if (divisor) gl.vertexAttribDivisor(location, divisor);
 }
 
-function createAtlasTexture(gl: WebGL2RenderingContext): WebGLTexture {
+function createAtlasTexture(
+  gl: WebGL2RenderingContext,
+  geometry: SceneGeometry,
+): WebGLTexture {
   const texture = gl.createTexture();
   if (!texture) throw new Error('Textur konnte nicht erstellt werden');
   gl.bindTexture(gl.TEXTURE_2D, texture);
   // R8UI: colour indices, not colours. Integer textures must sample NEAREST.
-  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8UI, ATLAS_WIDTH, ATLAS_HEIGHT);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8UI, geometry.atlasWidth, geometry.atlasHeight);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -793,11 +939,14 @@ function createAtlasTexture(gl: WebGL2RenderingContext): WebGLTexture {
   return texture;
 }
 
-function createPaletteTexture(gl: WebGL2RenderingContext): WebGLTexture {
+function createPaletteTexture(
+  gl: WebGL2RenderingContext,
+  geometry: SceneGeometry,
+): WebGLTexture {
   const texture = gl.createTexture();
   if (!texture) throw new Error('Textur konnte nicht erstellt werden');
   gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 4, 16);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, geometry.paletteSize, geometry.paletteCount * 2);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -834,4 +983,41 @@ function createProgram(gl: WebGL2RenderingContext, vs: string, fs: string): WebG
     throw new Error(`Link-Fehler: ${log}`);
   }
   return program;
+}
+
+/** A screen-filling quad for the flat fallback. */
+function createFlatQuad(
+  gl: WebGL2RenderingContext,
+  program: WebGLProgram,
+): WebGLVertexArrayObject {
+  const vao = gl.createVertexArray();
+  const vertices = gl.createBuffer();
+  if (!vao || !vertices) throw new Error('WebGL-Puffer konnten nicht angelegt werden');
+
+  gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
+  gl.bufferData(
+    gl.ARRAY_BUFFER,
+    new Float32Array([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]),
+    gl.STATIC_DRAW,
+  );
+  bindAttribute(gl, program, 'a_local', 2, 2 * 4, 0);
+  gl.bindVertexArray(null);
+  return vao;
+}
+
+/** Holds the emulator's finished picture for the flat fallback. */
+function createFrameTexture(
+  gl: WebGL2RenderingContext,
+  geometry: SceneGeometry,
+): WebGLTexture {
+  const texture = gl.createTexture();
+  if (!texture) throw new Error('WebGL-Textur konnte nicht angelegt werden');
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, geometry.screenWidth, geometry.screenHeight);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return texture;
 }

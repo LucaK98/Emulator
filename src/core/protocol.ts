@@ -77,6 +77,54 @@ export const PPU_BLOCK_BYTES =
 /** Index into the header, as Int32 slots. */
 export const PpuHeader = { IS_CGB: 0, VRAM_SIZE: 1 } as const;
 
+/**
+ * The same idea for the Game Boy Advance, at its own scale.
+ *
+ * The GBA keeps four background layers with their own scroll and priority,
+ * 96 KiB of video memory and 512 colours, so the block is about six times the
+ * Game Boy's. At 105 KiB a frame that is still small beside the frame buffer,
+ * and like the Game Boy's it is only filled while depth rendering is on.
+ */
+export const GbaPpu = {
+  HEADER_BYTES: 16,
+  VRAM_BYTES: 0x18000,
+  OAM_BYTES: 0x400,
+  /** 256 background plus 256 object colours, as the hardware's BGR555. */
+  PALETTE_BYTES: 0x400,
+  /** Display, window and blend registers; everything above is not video. */
+  IO_BYTES: 0x60,
+  /** DISPCNT, four BGxCNT and eight scroll registers, in 16 slots of 2 bytes. */
+  SCANLINE_RECORD_BYTES: 32,
+  SCANLINES: 160,
+} as const;
+
+export const GBA_PPU_OFFSETS = {
+  header: 0,
+  vram: GbaPpu.HEADER_BYTES,
+  oam: GbaPpu.HEADER_BYTES + GbaPpu.VRAM_BYTES,
+  palette: GbaPpu.HEADER_BYTES + GbaPpu.VRAM_BYTES + GbaPpu.OAM_BYTES,
+  io:
+    GbaPpu.HEADER_BYTES + GbaPpu.VRAM_BYTES + GbaPpu.OAM_BYTES + GbaPpu.PALETTE_BYTES,
+  scanlines:
+    GbaPpu.HEADER_BYTES +
+    GbaPpu.VRAM_BYTES +
+    GbaPpu.OAM_BYTES +
+    GbaPpu.PALETTE_BYTES +
+    GbaPpu.IO_BYTES,
+} as const;
+
+export const GBA_PPU_BLOCK_BYTES =
+  GBA_PPU_OFFSETS.scanlines + GbaPpu.SCANLINES * GbaPpu.SCANLINE_RECORD_BYTES;
+
+/** Slot indices within one scanline record, counted in 16-bit words. */
+export const GbaScanline = {
+  DISPCNT: 0,
+  BG_CONTROL: 1,
+  /** BG0HOFS, BG0VOFS, BG1HOFS ... BG3VOFS. */
+  SCROLL: 5,
+  WORDS: 16,
+} as const;
+
 /* --- Control block ------------------------------------------------------ */
 
 /** Int32 slots in the control block, all accessed via Atomics. */
@@ -132,7 +180,13 @@ export function sharedLayout(spec: SystemSpec): SharedLayout {
   const framePixels = spec.width * spec.height;
   const framesBytes = framePixels * 4 * FRAME_SLOTS;
   const audioBytes = AUDIO_RING_FRAMES * AUDIO_CHANNELS * 2; // Int16
-  const ppuBlockBytes = spec.supportsDepth ? PPU_BLOCK_BYTES : 0;
+  // Each console's capture has its own shape and size; a system without depth
+  // reserves nothing at all.
+  const ppuBlockBytes = !spec.supportsDepth
+    ? 0
+    : spec.id === 'gba'
+      ? GBA_PPU_BLOCK_BYTES
+      : PPU_BLOCK_BYTES;
 
   return {
     ctlOffset: 0,

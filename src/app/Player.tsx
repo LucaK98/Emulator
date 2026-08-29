@@ -200,7 +200,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
     if (!canvas) return;
 
     const useDepth = depthMode && depthAvailable;
-    const renderer = useDepth ? Depth25DRenderer.create(canvas) : GLRenderer.create(canvas, spec);
+    const renderer = useDepth ? Depth25DRenderer.create(canvas, spec) : GLRenderer.create(canvas, spec);
     if (!renderer) {
       setError('WebGL2 wird von diesem Browser nicht unterstützt');
       setPhase('error');
@@ -499,7 +499,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
               unavailableReason={
                 spec.supportsDepth
                   ? 'Braucht Cross-Origin-Isolation. Starte die App vom Home-Bildschirm.'
-                  : `Für ${spec.label} noch nicht gebaut — der Tiefen-Renderer liest die Game-Boy-PPU.`
+                  : `Für ${spec.label} nicht gebaut — der Tiefen-Renderer braucht Ebenen aus Kacheln.`
               }
               settings={depthSettings}
               raisedTiles={depthStats.raised}

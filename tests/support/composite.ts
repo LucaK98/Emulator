@@ -9,7 +9,7 @@
  * Test-only: the app never flattens the layers, it renders them in 3D.
  */
 
-import type { GbScene } from '../../src/render/ppu/decode';
+import type { DepthScene } from '../../src/render/ppu/scene';
 import { ATLAS_TILES_PER_ROW, ATLAS_WIDTH } from '../../src/render/ppu/decode';
 import { GB_SCREEN_HEIGHT, GB_SCREEN_WIDTH } from '../../src/core/protocol';
 
@@ -17,7 +17,7 @@ import { GB_SCREEN_HEIGHT, GB_SCREEN_WIDTH } from '../../src/core/protocol';
 const SPRITES_PER_LINE = 10;
 
 /** Reads one pixel of a tile from the atlas, honouring flips. */
-function tilePixel(scene: GbScene, tile: number, x: number, y: number, flip: number): number {
+function tilePixel(scene: DepthScene, tile: number, x: number, y: number, flip: number): number {
   const px = flip & 1 ? 7 - x : x;
   const py = flip & 2 ? 7 - y : y;
   const col = (tile % ATLAS_TILES_PER_ROW) * 8 + px;
@@ -26,12 +26,15 @@ function tilePixel(scene: GbScene, tile: number, x: number, y: number, flip: num
 }
 
 /** Colour index of the background/window at a screen position, or 0. */
-function backgroundIndexAt(scene: GbScene, x: number, y: number): { index: number; palette: number } {
-  if (!scene.bgEnabled) return { index: 0, palette: 0 };
-
-  // The window, where visible, replaces the background entirely.
-  if (scene.windowVisible && y >= scene.windowY && x >= scene.windowX) {
-    const cells = scene.window;
+function backgroundIndexAt(
+  scene: DepthScene,
+  x: number,
+  y: number,
+): { index: number; palette: number } {
+  // The HUD layer — the Game Boy's window — replaces the background where it
+  // is visible, so it is consulted first.
+  for (const layer of [...scene.hud, ...scene.ground]) {
+    const cells = layer.cells;
     for (let i = 0; i < cells.count; i++) {
       const cx = cells.worldX[i]!;
       const cy = cells.worldY[i]!;
@@ -44,22 +47,10 @@ function backgroundIndexAt(scene: GbScene, x: number, y: number): { index: numbe
     }
   }
 
-  const cells = scene.ground;
-  for (let i = 0; i < cells.count; i++) {
-    const cx = cells.worldX[i]!;
-    const cy = cells.worldY[i]!;
-    if (x >= cx && x < cx + 8 && y >= cy && y < cy + 8) {
-      return {
-        index: tilePixel(scene, cells.tile[i]!, x - cx, y - cy, cells.flip[i]!),
-        palette: cells.palette[i]!,
-      };
-    }
-  }
-
   return { index: 0, palette: 0 };
 }
 
-export function compositeScene(scene: GbScene): Uint32Array {
+export function compositeScene(scene: DepthScene): Uint32Array {
   const out = new Uint32Array(GB_SCREEN_WIDTH * GB_SCREEN_HEIGHT);
   const sprites = scene.sprites;
 

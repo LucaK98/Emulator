@@ -30,8 +30,11 @@ describe('systemForFileName', () => {
   });
 
   it('only claims depth support where the renderer actually has it', () => {
+    // Both consoles expose their layers as tile maps, which is what the depth
+    // renderer needs; the DS does not have a decoder.
     expect(SYSTEMS.gb.supportsDepth).toBe(true);
-    expect(SYSTEMS.gba.supportsDepth).toBe(false);
+    expect(SYSTEMS.gba.supportsDepth).toBe(true);
+    expect(SYSTEMS.nds.supportsDepth).toBe(false);
   });
 });
 

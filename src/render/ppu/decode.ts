@@ -11,6 +11,28 @@
  */
 
 import { PPU_OFFSETS, Ppu, PpuHeader, GB_SCREEN_HEIGHT, GB_SCREEN_WIDTH } from '../../core/protocol';
+import {
+  makeCells,
+  makeSprites,
+  type CellArrays,
+  type DepthScene,
+  type SceneGeometry,
+  type SpriteArrays,
+} from './scene';
+
+export type { CellArrays, SpriteArrays } from './scene';
+
+/** The Game Boy's fixed shape, as the renderer needs to know it. */
+export const GB_GEOMETRY: SceneGeometry = {
+  screenWidth: GB_SCREEN_WIDTH,
+  screenHeight: GB_SCREEN_HEIGHT,
+  atlasTilesPerRow: 16,
+  atlasWidth: 16 * 8,
+  atlasHeight: (768 / 16) * 8,
+  paletteSize: 4,
+  paletteCount: 8,
+  maxTiles: 768,
+};
 
 /** Tiles addressable across both VRAM banks. */
 export const MAX_TILES = 768;
@@ -38,101 +60,33 @@ const LCDC = {
   LCD_ENABLE: 0x80,
 } as const;
 
-/** Per-cell values the renderer turns into instances. */
-export interface CellArrays {
-  /** Map column and row, wrapped into 0..31. */
-  mapX: Int16Array;
-  mapY: Int16Array;
-  /** World position of the cell's top-left corner, in screen pixels. */
-  worldX: Float32Array;
-  worldY: Float32Array;
-  /** Absolute tile number into the atlas. */
-  tile: Uint16Array;
-  palette: Uint8Array;
-  flip: Uint8Array; // bit 0 = x, bit 1 = y
-  count: number;
-}
-
-export interface SpriteArrays {
-  /** Top-left of the sprite in screen pixels. */
-  x: Float32Array;
-  y: Float32Array;
-  tile: Uint16Array;
-  palette: Uint8Array;
-  flip: Uint8Array;
-  /** 8 or 16. */
-  height: Uint8Array;
-  /** Non-zero when the sprite is drawn behind non-zero background pixels. */
-  behindBg: Uint8Array;
-  count: number;
-}
-
-export interface GbScene {
-  isCgb: boolean;
-  lcdOn: boolean;
-  bgEnabled: boolean;
-  windowVisible: boolean;
-  /** Window origin on screen; WX is stored biased by 7. */
-  windowX: number;
-  windowY: number;
-  scrollX: number;
-  scrollY: number;
-  /** Per-scanline SCX/SCY, for parallax. */
-  scrollXByLine: Uint8Array;
-  scrollYByLine: Uint8Array;
-  tileAtlas: Uint8Array;
-  /** 8 palettes x 4 colours, RGBA8888, background then objects. */
-  bgPalettes: Uint32Array;
-  objPalettes: Uint32Array;
-  ground: CellArrays;
-  window: CellArrays;
-  sprites: SpriteArrays;
-}
-
-function makeCells(capacity: number): CellArrays {
-  return {
-    mapX: new Int16Array(capacity),
-    mapY: new Int16Array(capacity),
-    worldX: new Float32Array(capacity),
-    worldY: new Float32Array(capacity),
-    tile: new Uint16Array(capacity),
-    palette: new Uint8Array(capacity),
-    flip: new Uint8Array(capacity),
-    count: 0,
-  };
-}
-
 export class PpuDecoder {
-  private readonly scene: GbScene = {
-    isCgb: false,
-    lcdOn: false,
-    bgEnabled: true,
-    windowVisible: false,
-    windowX: 0,
-    windowY: 0,
-    scrollX: 0,
-    scrollY: 0,
-    scrollXByLine: new Uint8Array(GB_SCREEN_HEIGHT),
-    scrollYByLine: new Uint8Array(GB_SCREEN_HEIGHT),
+  readonly geometry = GB_GEOMETRY;
+
+  private readonly bg = makeCells(VIEW_COLS * VIEW_ROWS);
+  private readonly window = makeCells(VIEW_COLS * VIEW_ROWS);
+
+  private readonly scene: DepthScene = {
+    geometry: GB_GEOMETRY,
+    displayOn: false,
+    // The Game Boy draws its background behind everything and its window in
+    // front of everything, so the two groups have one layer each at most.
+    ground: [{ cells: this.bg, priority: 3 }],
+    hud: [],
+    sprites: makeSprites(OAM_ENTRIES),
     tileAtlas: new Uint8Array(ATLAS_WIDTH * ATLAS_HEIGHT),
     bgPalettes: new Uint32Array(32),
     objPalettes: new Uint32Array(32),
-    ground: makeCells(VIEW_COLS * VIEW_ROWS),
-    window: makeCells(VIEW_COLS * VIEW_ROWS),
-    sprites: {
-      x: new Float32Array(OAM_ENTRIES),
-      y: new Float32Array(OAM_ENTRIES),
-      tile: new Uint16Array(OAM_ENTRIES),
-      palette: new Uint8Array(OAM_ENTRIES),
-      flip: new Uint8Array(OAM_ENTRIES),
-      height: new Uint8Array(OAM_ENTRIES),
-      behindBg: new Uint8Array(OAM_ENTRIES),
-      count: 0,
-    },
+    scrollXByLine: new Int32Array(GB_SCREEN_HEIGHT),
+    scrollYByLine: new Int32Array(GB_SCREEN_HEIGHT),
+    scrollX: 0,
+    scrollY: 0,
   };
 
+  private readonly windowLayer = { cells: this.window, priority: 0 };
+
   /** Decodes one captured PPU block. The returned scene is reused each call. */
-  decode(block: Uint8Array): GbScene {
+  decode(block: Uint8Array): DepthScene {
     const header = new Int32Array(block.buffer, block.byteOffset + PPU_OFFSETS.header, 4);
     const vram = block.subarray(PPU_OFFSETS.vram, PPU_OFFSETS.vram + Ppu.VRAM_BYTES);
     const oam = block.subarray(PPU_OFFSETS.oam, PPU_OFFSETS.oam + Ppu.OAM_BYTES);
@@ -140,14 +94,17 @@ export class PpuDecoder {
     const scanlines = block.subarray(PPU_OFFSETS.scanlines);
 
     const scene = this.scene;
-    scene.isCgb = header[PpuHeader.IS_CGB] !== 0;
+    const isCgb = header[PpuHeader.IS_CGB] !== 0;
     const vramSize = header[PpuHeader.VRAM_SIZE] ?? 0x2000;
 
     // Registers as of the first visible scanline; the per-line log carries the
     // rest for anything that changes mid-frame.
     const lcdc = scanlines[0] ?? io[0x40] ?? 0;
-    scene.lcdOn = (lcdc & LCDC.LCD_ENABLE) !== 0;
-    scene.bgEnabled = (lcdc & LCDC.BG_ENABLE) !== 0;
+    // The background switch is folded into the display switch: with it off the
+    // Game Boy shows white behind the sprites, and an empty ground layer is
+    // exactly that.
+    scene.displayOn = (lcdc & LCDC.LCD_ENABLE) !== 0;
+    const bgEnabled = (lcdc & LCDC.BG_ENABLE) !== 0;
     scene.scrollX = scanlines[1] ?? 0;
     scene.scrollY = scanlines[2] ?? 0;
 
@@ -159,43 +116,45 @@ export class PpuDecoder {
 
     const windowX = (scanlines[3] ?? 0) - 7;
     const windowY = scanlines[4] ?? 0;
-    scene.windowVisible =
+    const windowVisible =
       (lcdc & LCDC.WINDOW_ENABLE) !== 0 && windowY < GB_SCREEN_HEIGHT && windowX < GB_SCREEN_WIDTH;
-    scene.windowX = windowX;
-    scene.windowY = windowY;
 
     decodeTiles(vram, vramSize, scene.tileAtlas);
-    decodePalettes(block, io, scene);
+    decodePalettes(block, io, isCgb, scene);
 
     const signedTiles = (lcdc & LCDC.TILE_DATA_LOW) === 0;
     const reader: MapReader = {
       vram,
-      hasAttributes: scene.isCgb && vramSize > 0x2000,
+      hasAttributes: isCgb && vramSize > 0x2000,
       signedTiles,
     };
 
-    decodeBackground(
-      reader,
-      (lcdc & LCDC.BG_MAP_HIGH) !== 0 ? 0x1c00 : 0x1800,
-      scene.scrollX,
-      scene.scrollY,
-      scene.ground,
-    );
+    if (bgEnabled) {
+      decodeBackground(
+        reader,
+        (lcdc & LCDC.BG_MAP_HIGH) !== 0 ? 0x1c00 : 0x1800,
+        scene.scrollX,
+        scene.scrollY,
+        this.bg,
+      );
+    }
+    else {
+      this.bg.count = 0;
+    }
 
-    if (scene.windowVisible) {
+    scene.hud.length = 0;
+    if (windowVisible) {
       decodeWindow(
         reader,
         (lcdc & LCDC.WINDOW_MAP_HIGH) !== 0 ? 0x1c00 : 0x1800,
         windowX,
         windowY,
-        scene.window,
+        this.window,
       );
-    }
-    else {
-      scene.window.count = 0;
+      if (this.window.count > 0) scene.hud.push(this.windowLayer);
     }
 
-    decodeSprites(oam, lcdc, scene.isCgb, scene.sprites);
+    decodeSprites(oam, lcdc, isCgb, scene.sprites);
 
     return scene;
   }
@@ -237,7 +196,12 @@ function decodeTiles(vram: Uint8Array, vramSize: number, atlas: Uint8Array): voi
  * index onto that ramp — so the mapping is applied here, which leaves both
  * models with the same eight-palettes-of-four structure for the shader.
  */
-function decodePalettes(block: Uint8Array, io: Uint8Array, scene: GbScene): void {
+function decodePalettes(
+  block: Uint8Array,
+  io: Uint8Array,
+  isCgb: boolean,
+  scene: DepthScene,
+): void {
   const bgSource = new Uint32Array(
     block.buffer,
     block.byteOffset + PPU_OFFSETS.bgPalettes,
@@ -249,7 +213,7 @@ function decodePalettes(block: Uint8Array, io: Uint8Array, scene: GbScene): void
     Ppu.PALETTE_BYTES / 4,
   );
 
-  if (scene.isCgb) {
+  if (isCgb) {
     scene.bgPalettes.set(bgSource);
     scene.objPalettes.set(objSource);
     return;
@@ -399,7 +363,10 @@ function decodeSprites(
     sprites.tile[count] = tile;
     sprites.palette[count] = isCgb ? attributes & 0x07 : (attributes >> 4) & 1;
     sprites.flip[count] = ((attributes >> 5) & 1) | (((attributes >> 6) & 1) << 1);
+    sprites.width[count] = 8;
     sprites.height[count] = height;
+    // A tall Game Boy object is two consecutive tiles, so one row steps one.
+    sprites.tileStride[count] = 1;
     sprites.behindBg[count] = (attributes >> 7) & 1;
     count++;
   }

@@ -43,18 +43,21 @@ describe('PPU layer decoder', () => {
     core.runFrames(SETTLE_FRAMES);
     const scene = core.scene();
 
-    expect(scene.lcdOn).toBe(true);
-    expect(scene.bgEnabled).toBe(true);
-    expect(scene.isCgb).toBe(false);
+    expect(scene.displayOn).toBe(true);
+    // One world layer, the background; the Game Boy has no more.
+    expect(scene.ground).toHaveLength(1);
+    expect(scene.ground[0]!.cells.count).toBeGreaterThan(0);
 
     // Scrolled off the tile grid in both axes.
     expect(scene.scrollX).toBe(3);
     expect(scene.scrollY).toBe(5);
 
-    // Window at WX-7 = 40, WY = 96.
-    expect(scene.windowVisible).toBe(true);
-    expect(scene.windowX).toBe(40);
-    expect(scene.windowY).toBe(96);
+    // Window at WX-7 = 40, WY = 96, handed over as the one HUD layer.
+    expect(scene.hud).toHaveLength(1);
+    const window = scene.hud[0]!.cells;
+    expect(window.count).toBeGreaterThan(0);
+    expect(window.worldX[0]).toBe(40);
+    expect(window.worldY[0]).toBe(96);
 
     // Eight objects, all 8x16, and the ones flagged as background-priority
     // must be recognised as such.
@@ -63,14 +66,15 @@ describe('PPU layer decoder', () => {
     expect([...scene.sprites.behindBg.slice(0, 8)]).toEqual([0, 0, 0, 0, 1, 0, 1, 0]);
 
     // Signed tile addressing: background indices 0..7 resolve to 256..263.
-    expect(Math.min(...scene.ground.tile.slice(0, scene.ground.count))).toBe(256);
-    expect(Math.max(...scene.ground.tile.slice(0, scene.ground.count))).toBe(263);
+    const ground = scene.ground[0]!.cells;
+    expect(Math.min(...ground.tile.slice(0, ground.count))).toBe(256);
+    expect(Math.max(...ground.tile.slice(0, ground.count))).toBe(263);
   });
 
   it('covers the whole screen with ground cells', async () => {
     const core = await loadCore('tests/roms/ppu-probe.gb', GB_MODEL_DMG_B);
     core.runFrames(SETTLE_FRAMES);
-    const cells = core.scene().ground;
+    const cells = core.scene().ground[0]!.cells;
 
     let minX = Infinity;
     let minY = Infinity;

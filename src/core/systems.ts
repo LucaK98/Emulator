@@ -95,9 +95,10 @@ export const SYSTEMS: Record<SystemId, SystemSpec> = {
     label: 'Game Boy Advance',
     width: 240,
     height: 160,
-    // The depth renderer reads the Game Boy PPU. The GBA's four background
-    // layers and affine modes need their own treatment, which is not built.
-    supportsDepth: false,
+    // Text mode, where all four background layers are plain scrolling tile
+    // maps. The rotating and bitmap modes have no tile grid to give height to;
+    // the decoder reports those and the player falls back to the flat picture.
+    supportsDepth: true,
     buttons: [...HANDHELD_BUTTONS, 'L', 'R'],
     hasTouchScreen: false,
     extensions: ['.gba'],

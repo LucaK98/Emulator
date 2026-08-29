@@ -4,7 +4,7 @@ Ein privater Emulator für **Game Boy, Game Boy Color, Game Boy Advance und Nint
 
 Alle vier Systeme laufen, das Projekt ist fertig.
 
-Das besondere Feature ist ein **2.5D-Renderer für Game-Boy-Spiele**: der Core gibt die PPU-Ebenen getrennt aus, der Renderer baut daraus eine echte 3D-Szene mit Kamera, Tiefe und Schatten.
+Das besondere Feature ist ein **2.5D-Renderer für Game Boy, Color und Advance**: der Core gibt die PPU-Ebenen getrennt aus, der Renderer baut daraus eine echte 3D-Szene mit Kamera, Tiefe und Schatten.
 
 > **3DS wird nicht unterstützt.** Es gibt keinen funktionierenden WebAssembly-Port von Citra/Azahar, und 3DS-Emulation braucht JIT plus eine GPU-Pipeline, die im Browser nicht erreichbar ist. Auf dem iPhone läuft 3DS heute nur über nativ sideloadete Apps.
 
@@ -15,7 +15,7 @@ Das besondere Feature ist ein **2.5D-Renderer für Game-Boy-Spiele**: der Core g
 | 0 | Fundament: PWA-Shell, Cross-Origin-Isolation, Speicher-Persistenz, CI/Deploy | ✅ fertig |
 | 1 | Game Boy / Color spielbar (SameBoy-Core, Renderer, Audio, Touch-Controls) | ✅ fertig |
 | 2 | Savestate-Slots, Export/Import, Controller-Support | ✅ fertig |
-| 3 | 2.5D-Renderer für Game Boy / Color | ✅ fertig |
+| 3 | 2.5D-Renderer für Game Boy / Color / Advance | ✅ fertig |
 | 4 | Game Boy Advance (mGBA) | ✅ fertig |
 | 5 | Nintendo DS (melonDS) | ✅ fertig |
 | 6 | Feinschliff: Rücklauf, Schnellvorlauf, Shader, Screenshots | ✅ fertig |
@@ -38,7 +38,11 @@ Beide Wrapper bieten dieselbe Schnittstelle an (ein Frame pro Aufruf, Puffer als
 
 **Taktung.** Das Audiogerät ist die Uhr. Ein Frame wird emuliert, wenn im Ringpuffer Platz für den Ton ist, den er erzeugt — dadurch läuft die Emulation ohne Drift synchron zur Ausgabe. Wenn nichts abgespielt wird (stummes Gerät, angehaltener AudioContext, Headless-Browser), erkennt der Worker den stehenden Ring, verwirft den Rückstau und taktet auf die Wanduhr um: das Spiel läuft dann still weiter, statt einzufrieren.
 
-**2.5D (nur Game Boy / Color).** Der Renderer arbeitet nicht mit dem fertigen Bild, sondern baut die Szene aus dem PPU-Zustand neu auf: Der Hintergrund wird ein Raster aus Blöcken, jeder Hardware-Sprite ein aufrecht stehendes Billboard mit Schatten, und die Fenster-Ebene bleibt flach obenauf — dort liegen Textboxen und Statusleisten, die gehören auf die Scheibe, nicht in die Welt. Die Farben kommen aus den Paletten, die der Core ohnehin schon auflöst, deshalb sieht eine Szene außer der Perspektive genauso aus wie flach.
+**2.5D (Game Boy, Color und Advance).** Der Renderer arbeitet nicht mit dem fertigen Bild, sondern baut die Szene aus dem PPU-Zustand neu auf: Der Hintergrund wird ein Raster aus Blöcken, jeder Hardware-Sprite ein aufrecht stehendes Billboard mit Schatten, und die aufs Bild geheftete Ebene bleibt flach obenauf — dort liegen Textboxen und Statusleisten, die gehören auf die Scheibe, nicht in die Welt. Die Farben kommen aus den Paletten, die der Core ohnehin schon auflöst, deshalb sieht eine Szene außer der Perspektive genauso aus wie flach.
+
+Beide Konsolen beschreiben ihr Bild in derselben Form, und die Unterschiede — Kachelatlas, Palettenform, Bildgröße — reicht der jeweilige Decoder als Daten durch. Beim Game Boy gibt es genau eine Welt- und eine Glas-Ebene. Der GBA hat vier Hintergrundebenen mit eigenem Scroll und eigener Priorität; welche davon Welt ist und welche Glas, entscheidet sich daran, ob sie sich über das Bild hinweg mitbewegt. Eine Statusleiste steht still, während die Karte darunter läuft — genau das ist der Unterschied.
+
+Abgedeckt ist der Kachelmodus. Die drehenden und die Bitmap-Modi haben kein Kachelraster, dem sich Höhe geben ließe; für solche Bilder zeigt der Tiefen-Renderer das fertige Bild, statt schwarz zu werden.
 
 **Wie die Höhen entstehen.** Nirgendwo in einem Game-Boy-Modul steht, wie hoch eine Kachel ist, und der Sinn des Features ist ja, dass es ohne spielspezifische Tabellen funktioniert. Also wird die Höhe aus etwas abgeleitet, das die Hardware sehr wohl verrät: wo Figuren sein können. Eine Kachel, auf der schon jemand stand, ist Boden — durch einen Baum läuft man nicht. Eine Kachel, die ständig zu sehen ist, auf der aber nie jemand steht, ist Wand, Baum, Klippe oder Wasser. Dieses eine Signal trennt eine Oberwelt von selbst in Boden und Kulisse.
 
