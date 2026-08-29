@@ -3,6 +3,13 @@ import { fileURLToPath } from 'node:url';
 
 const GB_ROM = fileURLToPath(new URL('../roms/overworld-probe.gb', import.meta.url));
 const NDS_ROM = fileURLToPath(new URL('../roms/nds-probe.nds', import.meta.url));
+/*
+ * For measuring which way the picture travels. The overworld probe cannot
+ * serve: its map repeats every tile, so matching two pictures only ever gives
+ * the shift modulo eight pixels and the direction is not in there at all. This
+ * one repeats every 128 pixels, well outside anything measured below.
+ */
+const SCROLL_ROM = fileURLToPath(new URL('../roms/gba-scroll-probe.gba', import.meta.url));
 
 test.describe('rewind, fast-forward and screenshots', () => {
   test.beforeEach(({}, testInfo) => {
@@ -43,15 +50,19 @@ test.describe('rewind, fast-forward and screenshots', () => {
 
   test('rewinding runs the world backwards', async ({ page }) => {
     await page.goto('./');
-    await page.locator('input[type=file]').setInputFiles(GB_ROM);
+    await page.locator('input[type=file]').setInputFiles(SCROLL_ROM);
     await page.locator('.game-tile').first().click();
     await page.getByRole('button', { name: 'Spielen' }).click();
-    // Long enough to build a history worth rewinding through.
-    await page.waitForTimeout(4000);
+    // Long enough to build a history that outlasts the measurement. Rewinding
+    // runs at about three times speed, so a few seconds of play is spent in
+    // about a second of holding — and once the history runs out the game
+    // simply carries on forwards, which would be measured as travel in the
+    // wrong direction.
+    await page.waitForTimeout(9000);
 
-    // The probe ROM scrolls its map by one pixel per frame, so the direction
-    // of travel can be read straight off the picture — which is a far better
-    // check than "something changed".
+    // The probe scrolls its map by one pixel per frame over a picture that does
+    // not repeat within the range searched, so the direction of travel can be
+    // read straight off it — a far better check than "something changed".
     const forwards = await measureScroll(page);
     expect(Math.abs(forwards), 'the map should be scrolling').toBeGreaterThan(2);
 
@@ -104,14 +115,19 @@ test.describe('rewind, fast-forward and screenshots', () => {
 });
 
 /**
- * How far the picture travelled horizontally over a few frames, in canvas
- * pixels. Positive and negative are opposite directions; only the sign and the
- * fact that there was movement are meaningful.
+ * How far the picture travelled horizontally, in canvas pixels. Positive and
+ * negative are opposite directions; only the sign and the fact that there was
+ * movement are meaningful.
  *
  * The whole measurement happens inside the page, across animation frames.
  * Reading the canvas from two separate evaluate calls returns the same content
- * even when the emulator is plainly running, so the two samples have to be
- * taken without handing control back to the test.
+ * even when the emulator is plainly running, so the samples have to be taken
+ * without handing control back to the test.
+ *
+ * Several short samples rather than one long one, reduced to their median. The
+ * probe's map repeats, so matching two pictures far apart in time can lock
+ * onto the wrong repetition and report travel backwards as travel forwards; a
+ * short step is unambiguous, and the median shrugs off a single bad match.
  */
 async function measureScroll(page: import('@playwright/test').Page): Promise<number> {
   return page.locator('canvas.player-canvas').evaluate(async (canvas) => {
@@ -171,32 +187,42 @@ async function measureScroll(page: import('@playwright/test').Page): Promise<num
       });
 
     const row = busiestRow();
-    const before = readRow(row);
-    await waitFrames(10);
-    const after = readRow(row);
-    if (before.length === 0) return 0;
+    const offsets: number[] = [];
 
-    // Offsets are in canvas pixels: the picture is drawn several times its
-    // native size, so a few emulated pixels of scroll is tens of them here.
-    const window = 160;
-    let bestOffset = 0;
-    let bestError = Infinity;
-    for (let offset = -window; offset <= window; offset++) {
-      let error = 0;
-      let count = 0;
-      for (let i = window; i < before.length - window; i++) {
-        const other = after[i + offset];
-        if (other === undefined) continue;
-        error += Math.abs(before[i]! - other);
-        count++;
-      }
-      if (count === 0) continue;
-      const mean = error / count;
-      if (mean < bestError) {
-        bestError = mean;
-        bestOffset = offset;
-      }
+    for (let sample = 0; sample < 5; sample++) {
+      const before = readRow(row);
+      await waitFrames(3);
+      const after = readRow(row);
+      if (before.length === 0) return 0;
+      offsets.push(matchOffset(before, after));
     }
-    return bestOffset;
+    offsets.sort((a, b) => a - b);
+    return offsets[Math.floor(offsets.length / 2)]!;
+
+    function matchOffset(before: number[], after: number[]): number {
+
+      // Offsets are in canvas pixels: the picture is drawn several times its
+      // native size, so a few emulated pixels of scroll is tens of them here.
+      const window = 160;
+      let bestOffset = 0;
+      let bestError = Infinity;
+      for (let offset = -window; offset <= window; offset++) {
+        let error = 0;
+        let count = 0;
+        for (let i = window; i < before.length - window; i++) {
+          const other = after[i + offset];
+          if (other === undefined) continue;
+          error += Math.abs(before[i]! - other);
+          count++;
+        }
+        if (count === 0) continue;
+        const mean = error / count;
+        if (mean < bestError) {
+          bestError = mean;
+          bestOffset = offset;
+        }
+      }
+      return bestOffset;
+    }
   });
 }

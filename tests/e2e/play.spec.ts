@@ -53,9 +53,16 @@ test.describe('playing a game', () => {
     const fps = page.locator('.overlay-card .fps-readout');
     await expect(fps).toBeVisible();
     const reported = Number((await fps.textContent())?.replace(/[^\d.]/g, ''));
-    // A headless runner will not hold a steady 60, but anything near zero means
-    // the loop is stalled rather than merely slow.
-    expect(reported, 'emulator should be producing frames').toBeGreaterThan(20);
+    /*
+     * The question here is whether the loop turns at all, not how fast.
+     *
+     * The bar was twenty frames a second and that made the test unreliable:
+     * the suite runs several browsers at once, each with a WebAssembly
+     * emulator in it, and on a loaded machine a perfectly healthy loop drops
+     * well below that. A stalled loop reports zero, so a handful of frames a
+     * second separates the two cases and nothing about speed is claimed.
+     */
+    expect(reported, 'emulator should be producing frames').toBeGreaterThan(5);
 
     // --- save and leave ---------------------------------------------------
     await page.getByRole('button', { name: 'Speichern und beenden' }).click();

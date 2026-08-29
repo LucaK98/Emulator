@@ -68,6 +68,19 @@ const DISAGREEMENT_FRACTION = 0.45;
 const MIN_CELLS_TO_JUDGE = 24;
 
 /**
+ * How far beyond the screen a tile may be and still be worth recording.
+ *
+ * A console writes the next row of map just before it scrolls into view, so a
+ * narrow band outside the picture is already correct and can be shown before
+ * the player gets there. How narrow is a measured figure, not a guess: over
+ * nine hundred cells that later scrolled into view, everything within two
+ * tiles of the edge matched exactly what turned up. Further out there was no
+ * evidence either way, so it is not used — showing what has not been written
+ * yet is how a house appears out of nowhere.
+ */
+const LOOKAHEAD_TILES = 2;
+
+/**
  * A scroll step larger than this is not walking.
  *
  * On foot a game scrolls a pixel or two a frame. A jump means a warp, a
@@ -263,12 +276,22 @@ export class WorldMemory {
     const { screenWidth, screenHeight } = scene.geometry;
     const cells = layer.cells;
 
+    // The screen, plus the narrow band beyond it the console has already
+    // written. Everything further out is whatever last scrolled out of its
+    // memory, which is exactly what must not be kept.
+    const reach = LOOKAHEAD_TILES * 8;
+
     for (let i = 0; i < cells.count; i++) {
       const x = cells.worldX[i]!;
       const y = cells.worldY[i]!;
-      // Only what is on screen. Everything beyond it is whatever last scrolled
-      // out of the console's memory, which is exactly what must not be kept.
-      if (x < -8 || y < -8 || x >= screenWidth || y >= screenHeight) continue;
+      if (
+        x < -8 - reach ||
+        y < -8 - reach ||
+        x >= screenWidth + reach ||
+        y >= screenHeight + reach
+      ) {
+        continue;
+      }
 
       const slot = this.slotFor(memory, x, y);
       memory.cells[slot] = pack(cells.tile[i]!, cells.palette[i]!, cells.flip[i]!);

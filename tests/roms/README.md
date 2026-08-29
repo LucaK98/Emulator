@@ -45,9 +45,11 @@ rgbasm -o probe.o src/ppu-probe.asm && rgblink -o ppu-probe.gb probe.o && rgbfix
 | `overworld-probe.gb` | The height model separates ground from scenery with no per-game knowledge: a character walks a corridor of ground tiles past scattered scenery, and only the scenery may rise. |
 | `nds-probe.nds` | Both DS screens are composed correctly and both arrangements work: a colour gradient on the engine A screen, a flat backdrop on the engine B screen, so the two can never be confused. |
 | `gba-depth-probe.gba` | The GBA layer decoder reads the hardware the way the hardware does: mode 0 with two background layers at different scroll and priority, two palettes, and three objects of different sizes, flips and priority — checked by flattening the decoded layers and comparing to the emulator's own output, pixel for pixel. |
+| `gba-scroll-probe.gba` | Which way the picture is travelling can be measured at all. Its map repeats only every 128 pixels, so matching two frames has exactly one answer — unlike the overworld probe, whose map repeats every tile and from which the direction of travel is simply not recoverable. Used by the rewind test. |
 | `gba-farcart-probe.gba` | A GBA cartridge stays mapped over its whole length. mGBA does not copy a ROM, so the buffer handed to it has to outlive the load call; this probe stores four colours 4, 8, 12 and nearly 16 MiB in and paints them as four bands, so a cartridge that stops being readable shows up as the wrong picture rather than as nothing at all. |
 
-`gba-depth-probe.gba` is assembled by `scripts/build-gba-depth-probe.py`. Like
+`gba-depth-probe.gba` is assembled by `scripts/build-gba-depth-probe.py`, and
+`gba-scroll-probe.gba` by `scripts/build-gba-scroll-probe.py`. Like
 the GBA probes generally it carries no Nintendo logo in its header, so it is an
 emulator test ROM rather than something a console would boot.
 

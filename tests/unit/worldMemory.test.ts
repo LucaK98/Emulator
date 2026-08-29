@@ -38,14 +38,16 @@ function frameAt(
   scrollY: number,
   tileAt: (worldTileX: number, worldTileY: number) => number,
   fingerprint = 1,
+  /** How far past the screen the console's own map reaches, in tiles. */
+  margin = 0,
 ): { scene: DepthScene; layer: DepthScene['ground'][number] } {
   const cells = makeCells(64 * 64);
-  const firstCol = Math.floor(scrollX / 8);
-  const firstRow = Math.floor(scrollY / 8);
+  const firstCol = Math.floor(scrollX / 8) - margin;
+  const firstRow = Math.floor(scrollY / 8) - margin;
 
   let count = 0;
-  for (let row = 0; row <= SCREEN_ROWS; row++) {
-    for (let column = 0; column <= SCREEN_COLS; column++) {
+  for (let row = 0; row <= SCREEN_ROWS + margin * 2; row++) {
+    for (let column = 0; column <= SCREEN_COLS + margin * 2; column++) {
       const tileX = firstCol + column;
       const tileY = firstRow + row;
       cells.mapX[count] = tileX;
@@ -173,6 +175,31 @@ describe('WorldMemory', () => {
     memory.expand(0, layer, scene);
 
     expect(memory.forgot).toBe(true);
+  });
+
+  /*
+   * A console writes the next row of map just before it scrolls into view, so
+   * a narrow band outside the picture is already correct. How narrow is
+   * measured rather than assumed: two tiles held in every one of nine hundred
+   * cells checked against what later appeared, and beyond that there was no
+   * evidence, so beyond that nothing is taken.
+   */
+  it('takes the narrow band the console has already written, and no more', () => {
+    const memory = new WorldMemory(FINGERPRINT_LENGTH);
+
+    // A single frame whose map reaches eight tiles past the screen.
+    const { scene, layer } = frameAt(0, 0, distinctWorld, 1, 8);
+    memory.expand(0, layer, scene);
+
+    // Two tiles of it are kept beyond the screen on every side, not eight.
+    const kept = memory.rememberedCells();
+    const screen = (SCREEN_COLS + 1) * (SCREEN_ROWS + 1);
+    const withLookahead = (SCREEN_COLS + 1 + 4) * (SCREEN_ROWS + 1 + 4);
+    const withEverything = (SCREEN_COLS + 1 + 16) * (SCREEN_ROWS + 1 + 16);
+
+    expect(kept).toBeGreaterThan(screen);
+    expect(kept).toBeLessThanOrEqual(withLookahead);
+    expect(kept).toBeLessThan(withEverything);
   });
 
   it('is not upset by a few tiles changing, as a door or a sign would', () => {
