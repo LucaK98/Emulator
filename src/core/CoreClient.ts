@@ -127,6 +127,12 @@ export class CoreClient {
     });
 
     this.usingShared = await this.readyPromise;
+
+    // A renderer may have been attached before any of this existed — the UI
+    // builds the two independently, and with the depth view already on for a
+    // game the renderer is ready first. Its need for PPU state is expressed
+    // through the shared block, which only exists now.
+    this.setPpuCapture(this.renderer?.needsPpuState ?? false);
   }
 
   /**

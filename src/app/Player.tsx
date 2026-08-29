@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { CoreClient } from '../core/CoreClient';
 import { GLRenderer } from '../render/GLRenderer';
+import type { SceneRenderer } from '../render/SceneRenderer';
 import {
   DEFAULT_DEPTH_SETTINGS,
   Depth25DRenderer,
@@ -26,6 +27,7 @@ import { SYSTEMS } from '../core/systems';
 import { mapToTouchScreen } from '../input/touchScreen';
 import { loadDisplaySettings } from './displaySettings';
 import { shareOrDownload } from '../storage/backup';
+import { loadWorldMap, saveWorldMap } from '../storage/worldMap';
 import {
   AUTO_SLOT,
   getRom,
@@ -71,6 +73,16 @@ export function Player({ game, baseUrl, onExit }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rootRef = useRef<HTMLElement>(null);
   const coreRef = useRef<CoreClient | null>(null);
+  /**
+   * The renderer currently in use.
+   *
+   * Held because the core and the renderer are built by two effects that do
+   * not wait for each other: with the depth view already switched on for a
+   * game, the renderer is created while the core is still loading, and
+   * attaching it there would attach it to nothing. Whichever finishes second
+   * does the attaching.
+   */
+  const rendererRef = useRef<SceneRenderer | null>(null);
   const inputRef = useRef(new InputState());
   const gamepadRef = useRef<GamepadReader | null>(null);
 
@@ -86,7 +98,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
   const [depthMode, setDepthMode] = useState(game.depth3d ?? false);
   const [depthSettings, setDepthSettings] = useState<DepthSettings>(loadDepthSettings);
   const depthRef = useRef<Depth25DRenderer | null>(null);
-  const [depthStats, setDepthStats] = useState({ raised: 0, learning: false });
+  const [depthStats, setDepthStats] = useState({ raised: 0, learning: false, remembered: 0 });
   // Depth rendering reads PPU state out of shared memory each frame; without
   // cross-origin isolation there is no shared memory to read.
   const depthAvailable =
@@ -110,6 +122,12 @@ export function Player({ game, baseUrl, onExit }: Props) {
     if (!data) return;
     await putState(game.id, AUTO_SLOT, data, thumbnail);
     await updateGame(game.id, { lastPlayedAt: Date.now(), thumbnail });
+
+    // The explored world goes with the state, and only with it: the two have
+    // to agree about where the player is standing, or the map would be laid
+    // over the wrong place when the game resumes.
+    const world = depthRef.current?.worldSnapshot();
+    if (world) await saveWorldMap(game.id, world);
   }, [game.id, spec]);
 
   const saveToSlot = useCallback(
@@ -154,6 +172,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
       onRewindReady: (available, seconds) => setRewind({ available, seconds }),
     });
     coreRef.current = core;
+    if (rendererRef.current) core.attachRenderer(rendererRef.current);
 
     void (async () => {
       try {
@@ -209,12 +228,23 @@ export function Player({ game, baseUrl, onExit }: Props) {
     }
 
     depthRef.current = useDepth ? (renderer as Depth25DRenderer) : null;
-    if (depthRef.current) depthRef.current.settings = depthSettings;
+    if (depthRef.current) {
+      depthRef.current.settings = depthSettings;
+      // The world explored in earlier sessions, so the wide view does not have
+      // to be walked out again from nothing. Loaded without blocking the first
+      // frame; the renderer holds it until it can tell whether it fits.
+      const depth = depthRef.current;
+      void loadWorldMap(game.id).then((world) => {
+        if (world && depthRef.current === depth) depth.restoreWorld(world);
+      });
+    }
     else (renderer as GLRenderer).gridStrength = loadDisplaySettings().lcdGrid;
+    rendererRef.current = renderer;
     coreRef.current?.attachRenderer(renderer);
 
     return () => {
       coreRef.current?.attachRenderer(null);
+      rendererRef.current = null;
       depthRef.current = null;
       renderer.dispose();
     };
@@ -371,6 +401,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
     setDepthStats({
       raised: model?.raisedTileCount() ?? 0,
       learning: model?.learning ?? false,
+      remembered: depthRef.current?.rememberedCells() ?? 0,
     });
   }, [menuOpen]);
 
@@ -507,6 +538,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
               settings={depthSettings}
               raisedTiles={depthStats.raised}
               learning={depthStats.learning}
+              rememberedCells={depthStats.remembered}
               onToggle={changeDepthMode}
               onChange={changeDepthSettings}
             />

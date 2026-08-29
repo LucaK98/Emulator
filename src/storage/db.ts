@@ -9,13 +9,15 @@
  */
 
 const DB_NAME = 'emulator';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const Store = {
   Games: 'games',
   Roms: 'roms',
   Saves: 'saves',
   States: 'states',
+  /** The explored world per game, for the depth view. */
+  WorldMaps: 'worldMaps',
 } as const;
 
 export type StoreName = (typeof Store)[keyof typeof Store];
@@ -43,6 +45,9 @@ export function openDatabase(): Promise<IDBDatabase> {
         db.createObjectStore(Store.Saves);
       }
       // Save states, keyed by `${romId}:${slot}`.
+      if (!db.objectStoreNames.contains(Store.WorldMaps)) {
+        db.createObjectStore(Store.WorldMaps);
+      }
       if (!db.objectStoreNames.contains(Store.States)) {
         db.createObjectStore(Store.States);
       }

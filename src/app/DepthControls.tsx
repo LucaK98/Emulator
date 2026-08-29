@@ -16,6 +16,8 @@ interface Props {
   /** Tiles the height model currently considers raised. */
   raisedTiles: number;
   learning: boolean;
+  /** Tiles of world remembered from walking around, including past sessions. */
+  rememberedCells: number;
   onToggle: (enabled: boolean) => void;
   onChange: (settings: DepthSettings) => void;
 }
@@ -27,6 +29,7 @@ export function DepthControls({
   settings,
   raisedTiles,
   learning,
+  rememberedCells,
   onToggle,
   onChange,
 }: Props) {
@@ -90,14 +93,32 @@ export function DepthControls({
             onInput={(shadow) => onChange({ ...settings, shadow })}
           />
 
-          <p class="footnote">
+          <p class="footnote heights-readout">
             {describeHeights(raisedTiles)}
             {learning ? ' · lernt' : ' · Lernen pausiert'}
+          </p>
+          <p class="footnote world-readout" data-cells={rememberedCells}>
+            {describeWorld(rememberedCells)}
           </p>
         </>
       )}
     </section>
   );
+}
+
+/**
+ * How much explored world is being drawn from.
+ *
+ * Worth showing: the wide view is earned by walking, and kept between
+ * sessions, so a number that grows explains itself where a picture that simply
+ * gets bigger does not.
+ */
+function describeWorld(cells: number): string {
+  if (cells === 0) return 'Karte: noch nichts erkundet';
+  // A Game Boy screen is 20 by 18 tiles; screens are a friendlier unit here.
+  const screens = cells / (20 * 18);
+  if (screens < 1.5) return 'Karte: knapp ein Bildschirm erkundet';
+  return `Karte: rund ${Math.round(screens)} Bildschirme erkundet`;
 }
 
 function describeHeights(count: number): string {

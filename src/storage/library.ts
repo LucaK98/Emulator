@@ -196,6 +196,8 @@ export async function deleteGame(id: string): Promise<void> {
   await remove(Store.Roms, id);
   await remove(Store.Saves, id);
   await remove(Store.States, stateKey(id, AUTO_SLOT));
+  // The explored world belongs to this game and to nothing else.
+  await remove(Store.WorldMaps, id);
   for (let slot = 1; slot <= 8; slot++) {
     await remove(Store.States, stateKey(id, String(slot)));
   }

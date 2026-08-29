@@ -216,4 +216,69 @@ describe('WorldMemory', () => {
     expect(memory.forgot).toBe(false);
     expect(memory.rememberedCells()).toBeGreaterThanOrEqual(before);
   });
+
+  /*
+   * Keeping the explored world between sessions.
+   *
+   * The stored position is a running total this code keeps, not something the
+   * console holds, so a saved map only lines up where the game resumes — which
+   * it does when the auto save state is loaded alongside it. Anything else has
+   * to be refused rather than laid over the wrong place, and that refusal is
+   * what these check.
+   */
+  describe('restoring a saved world', () => {
+    it('picks up where the last session left off', () => {
+      const first = new WorldMemory(FINGERPRINT_LENGTH);
+      walk(first, 300, distinctWorld);
+      const explored = first.rememberedCells();
+      const snapshot = first.snapshot()!;
+      expect(snapshot).not.toBeNull();
+
+      // A fresh session resuming at the same place, as loading the auto state
+      // puts it.
+      const second = new WorldMemory(FINGERPRINT_LENGTH);
+      second.restore(snapshot);
+      const { scene, layer } = frameAt(300, 0, distinctWorld);
+      second.expand(0, layer, scene);
+
+      expect(second.forgot).toBe(false);
+      expect(second.rememberedCells()).toBeGreaterThanOrEqual(explored);
+    });
+
+    it('refuses a world saved against different tile art', () => {
+      const first = new WorldMemory(FINGERPRINT_LENGTH);
+      walk(first, 300, distinctWorld);
+      const snapshot = first.snapshot()!;
+
+      const second = new WorldMemory(FINGERPRINT_LENGTH);
+      second.restore(snapshot);
+      // Same place, but the game has loaded a different tileset since.
+      const { scene, layer } = frameAt(300, 0, distinctWorld, 7);
+      second.expand(0, layer, scene);
+
+      expect(second.rememberedCells()).toBeLessThanOrEqual(
+        (SCREEN_COLS + 1) * (SCREEN_ROWS + 1),
+      );
+    });
+
+    it('refuses a world that starts somewhere else', () => {
+      const first = new WorldMemory(FINGERPRINT_LENGTH);
+      walk(first, 300, distinctWorld);
+      const snapshot = first.snapshot()!;
+
+      // A different save slot: the running total knows nothing about here.
+      const second = new WorldMemory(FINGERPRINT_LENGTH);
+      second.restore(snapshot);
+      const { scene, layer } = frameAt(900, 0, distinctWorld);
+      second.expand(0, layer, scene);
+
+      expect(second.rememberedCells()).toBeLessThanOrEqual(
+        (SCREEN_COLS + 1) * (SCREEN_ROWS + 1),
+      );
+    });
+
+    it('has nothing to save before anything has been seen', () => {
+      expect(new WorldMemory(FINGERPRINT_LENGTH).snapshot()).toBeNull();
+    });
+  });
 });

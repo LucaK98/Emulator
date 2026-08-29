@@ -80,6 +80,23 @@ const MIN_CELLS_TO_JUDGE = 24;
  */
 const LOOKAHEAD_TILES = 2;
 
+/** Bumped when the stored shape changes, so old saves are simply ignored. */
+const SNAPSHOT_VERSION = 1;
+
+/** What is written to storage so a map survives closing the app. */
+export interface WorldSnapshot {
+  version: number;
+  /** Identifies the tile art; a map is meaningless against a different set. */
+  fingerprint: Uint8Array;
+  layers: Array<{
+    cells: Uint32Array;
+    originX: number;
+    originY: number;
+    lastScrollX: number;
+    lastScrollY: number;
+  }>;
+}
+
 /**
  * A scroll step larger than this is not walking.
  *
@@ -127,8 +144,45 @@ export class WorldMemory {
   /** Set for one frame after the memory was cleared; the UI reports it. */
   forgot = false;
 
+  /** A restored map, held until the first frame can vouch for it. */
+  private pending: WorldSnapshot | null = null;
+
   constructor(fingerprintLength: number) {
     this.previousFingerprint = new Uint8Array(fingerprintLength);
+  }
+
+  /**
+   * Offers a map saved from an earlier session.
+   *
+   * It is not adopted here: whether it belongs to what is on screen can only
+   * be told once there is a frame to compare against, which happens on the
+   * next call to expand.
+   */
+  restore(snapshot: WorldSnapshot): void {
+    if (snapshot.version !== SNAPSHOT_VERSION) return;
+    this.pending = snapshot;
+  }
+
+  /**
+   * The current map, for storing. Null while nothing has been recorded.
+   *
+   * Only the cells travel. The frame stamps do not: they count from this
+   * session's start and would age everything out at once on restore, so the
+   * restored cells are simply treated as seen just now.
+   */
+  snapshot(): WorldSnapshot | null {
+    if (this.layers.length === 0 || !this.fingerprintSeen) return null;
+    return {
+      version: SNAPSHOT_VERSION,
+      fingerprint: this.previousFingerprint.slice(),
+      layers: this.layers.map((memory) => ({
+        cells: memory.cells.slice(),
+        originX: memory.originX,
+        originY: memory.originY,
+        lastScrollX: memory.lastScrollX,
+        lastScrollY: memory.lastScrollY,
+      })),
+    };
   }
 
   /**
@@ -139,6 +193,7 @@ export class WorldMemory {
     if (index === 0) {
       this.frame++;
       this.forgot = false;
+      this.adoptPending(scene);
       if (this.tilesetChanged(scene)) this.clear();
     }
 
@@ -174,6 +229,53 @@ export class WorldMemory {
   }
 
   /* --- internals -------------------------------------------------------- */
+
+  /**
+   * Decides whether a map from an earlier session belongs to this frame.
+   *
+   * The tile art has to be the same, or every tile number in the stored map
+   * draws something else and nothing about it can be trusted.
+   *
+   * Where the player is standing is not checked here. The stored position
+   * comes with the scroll it was taken at, so the ordinary step calculation
+   * that follows carries it forward to wherever the game has resumed — and
+   * that calculation already refuses a step too large to be walking, which is
+   * what a different save slot or a fresh start looks like. It has to work
+   * that way: several frames pass between writing the save state and taking
+   * this snapshot, and in a game that scrolls continuously the two never quite
+   * agree.
+   */
+  private adoptPending(scene: DepthScene): void {
+    const snapshot = this.pending;
+    if (!snapshot) return;
+    this.pending = null;
+
+    const fingerprint = scene.tileSideIndex;
+    if (snapshot.fingerprint.length !== fingerprint.length) return;
+    for (let i = 0; i < fingerprint.length; i++) {
+      if (snapshot.fingerprint[i] !== fingerprint[i]) return;
+    }
+
+    if (snapshot.layers.length === 0) return;
+
+    snapshot.layers.forEach((stored, index) => {
+      const memory = this.layerFor(index);
+      if (stored.cells.length !== memory.cells.length) return;
+      memory.cells.set(stored.cells);
+      // Treated as seen just now, so nothing ages out on the first frame back.
+      memory.stamp.fill(this.frame, 0, memory.stamp.length);
+      for (let i = 0; i < memory.cells.length; i++) {
+        if (memory.cells[i] === 0) memory.stamp[i] = 0;
+      }
+      memory.originX = stored.originX;
+      memory.originY = stored.originY;
+      memory.lastScrollX = stored.lastScrollX;
+      memory.lastScrollY = stored.lastScrollY;
+      memory.started = true;
+    });
+    this.previousFingerprint.set(fingerprint);
+    this.fingerprintSeen = true;
+  }
 
   private layerFor(index: number): LayerMemory {
     let memory = this.layers[index];

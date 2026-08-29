@@ -44,7 +44,9 @@ test.describe('2.5D rendering', () => {
     await page.waitForTimeout(7000);
     await page.getByRole('button', { name: 'Menü' }).click();
 
-    const readout = page.locator('.depth-panel .footnote');
+    // The panel carries more than one footnote now, so the heights reading has
+    // its own hook rather than being the only one.
+    const readout = page.locator('.heights-readout');
     await expect(readout).toContainText('Kachel steht');
     await expect(readout).toContainText('lernt');
   });

@@ -21,7 +21,7 @@ import { TileHeightModel } from './heightModel';
 import { PpuDecoder } from './ppu/decode';
 import { GbaPpuDecoder } from './ppu/decodeGba';
 import type { CellArrays, DepthScene, SceneGeometry } from './ppu/scene';
-import { WINDOW_COLS, WINDOW_ROWS, WorldMemory } from './worldMemory';
+import { WINDOW_COLS, WINDOW_ROWS, WorldMemory, type WorldSnapshot } from './worldMemory';
 
 /**
  * What the renderer needs of a console's decoder: the shape of its tiles and
@@ -319,6 +319,8 @@ export class Depth25DRenderer implements SceneRenderer {
   settings: DepthSettings = { ...DEFAULT_DEPTH_SETTINGS };
   readonly heights = new TileHeightModel();
   private memory: WorldMemory | null = null;
+  /** An explored world from an earlier session, until the first frame runs. */
+  private restoredWorld: WorldSnapshot | null = null;
 
   private readonly viewProj: Mat4 = identity();
   private readonly flatProj: Mat4 = identity();
@@ -460,7 +462,13 @@ export class Depth25DRenderer implements SceneRenderer {
     // The console holds barely more map than it shows, so what is drawn is not
     // taken straight from it: the world memory keeps what the player has
     // already walked through, and hands back the surroundings.
-    this.memory ??= new WorldMemory(scene.tileSideIndex.length);
+    if (!this.memory) {
+      this.memory = new WorldMemory(scene.tileSideIndex.length);
+      if (this.restoredWorld) {
+        this.memory.restore(this.restoredWorld);
+        this.restoredWorld = null;
+      }
+    }
 
     // Back to front, so a layer the hardware draws in front covers the ones
     // behind it. Only the hindmost carries height: raising every layer would
@@ -529,6 +537,22 @@ export class Depth25DRenderer implements SceneRenderer {
   /** How much world is currently remembered, for the diagnostics readout. */
   rememberedCells(): number {
     return this.memory?.rememberedCells() ?? 0;
+  }
+
+  /**
+   * Offers a world explored in an earlier session.
+   *
+   * Held until the first frame, which is the earliest anything can tell
+   * whether it belongs to what is on screen.
+   */
+  restoreWorld(snapshot: WorldSnapshot): void {
+    if (this.memory) this.memory.restore(snapshot);
+    else this.restoredWorld = snapshot;
+  }
+
+  /** The explored world, for storing. Null while nothing has been recorded. */
+  worldSnapshot(): WorldSnapshot | null {
+    return this.memory?.snapshot() ?? null;
   }
 
   /** Draws the emulator's own picture, for frames with no layers to rebuild. */
