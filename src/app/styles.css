@@ -619,6 +619,71 @@ h2 {
   }
 }
 
+/* --- Two screens on one display (Nintendo DS) --------------------------- */
+
+/*
+ * Two screens want the whole display, not the half above the buttons.
+ *
+ * The composed picture is exactly two screens tall, so centring it on the
+ * display puts the seam between them on the display's own middle line — an
+ * even split, and each screen as large as the width allows. The buttons
+ * overlay the lower screen rather than taking a row of their own; while they
+ * do, the console's touch screen is off, and the button in the corner hides
+ * them when the touch screen is what is wanted.
+ *
+ * Portrait only: in landscape the controls already overlay the stage, with
+ * their own absolute placement that this would disturb.
+ */
+@media (orientation: portrait) {
+  .player.is-overlaid {
+    grid-template-rows: 1fr;
+  }
+
+  .player.is-overlaid .player-stage {
+    grid-row: 1;
+    grid-column: 1;
+    /*
+     * Symmetric, or the seam sits below the middle line rather than on it.
+     * The larger of the two insets keeps the top screen clear of the notch
+     * without moving the picture off centre.
+     */
+    padding:
+      max(var(--safe-top), var(--safe-bottom))
+      max(var(--safe-left), var(--safe-right));
+  }
+
+  .player.is-overlaid .touch-surface {
+    grid-row: 1;
+    grid-column: 1;
+    align-self: end;
+    background: none;
+  }
+}
+
+/* The corner strip stays put whether the buttons are up or not — hiding them
+   must not also hide the way back. */
+.stage-tools {
+  position: absolute;
+  top: calc(var(--safe-top) + 0.5rem);
+  right: calc(var(--safe-right) + 0.75rem);
+  z-index: 5;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.stage-tool {
+  min-height: 36px;
+  padding: 0 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 1.125rem;
+  background: rgba(5, 7, 10, 0.72);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  touch-action: none;
+}
+
 /* --- 2.5D panel --------------------------------------------------------- */
 
 .depth-panel {

@@ -99,6 +99,15 @@ export function Player({ game, baseUrl, onExit }: Props) {
   const [depthSettings, setDepthSettings] = useState<DepthSettings>(loadDepthSettings);
   const depthRef = useRef<Depth25DRenderer | null>(null);
   const [depthStats, setDepthStats] = useState({ raised: 0, learning: false, remembered: 0 });
+  /*
+   * Whether the on-screen buttons are out of the way.
+   *
+   * On a two-screen console the buttons overlay the lower screen, so only one
+   * of the two can have the taps: with the buttons up they take them and the
+   * console's touch screen is off, and hiding them hands it over.
+   */
+  const [controlsHidden, setControlsHidden] = useState(false);
+  const touchScreenLive = spec.hasTouchScreen && controlsHidden;
   // Depth rendering reads PPU state out of shared memory each frame; without
   // cross-origin isolation there is no shared memory to read.
   const depthAvailable =
@@ -284,7 +293,9 @@ export function Player({ game, baseUrl, onExit }: Props) {
    */
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !spec.hasTouchScreen) return;
+    // Only while the buttons are out of the way: otherwise every press of the
+    // d-pad would also be a poke at the console's touch screen.
+    if (!canvas || !touchScreenLive) return;
 
     const send = (event: PointerEvent) => {
       const core = coreRef.current;
@@ -319,8 +330,10 @@ export function Player({ game, baseUrl, onExit }: Props) {
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
+      // A finger down when the buttons come back would otherwise stay down.
+      coreRef.current?.releaseTouch();
     };
-  }, [spec, layout, phase === 'error']);
+  }, [spec, layout, touchScreenLive, phase === 'error']);
 
   /**
    * Rewind and fast-forward act on the emulator rather than the console, so
@@ -455,7 +468,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
   useDoubleTapGuard(rootRef);
 
   return (
-    <main class="screen player" ref={rootRef}>
+    <main class={spec.hasTouchScreen ? 'screen player is-overlaid' : 'screen player'} ref={rootRef}>
       <div class="player-stage">
         <canvas
           key={depthMode && depthAvailable ? 'depth' : 'flat'}
@@ -463,7 +476,31 @@ export function Player({ game, baseUrl, onExit }: Props) {
           class="player-canvas"
           width={spec.width}
           height={spec.height}
+          // Reports the same gate the pointer handlers above are attached
+          // under, so what the console receives can be read off the page.
+          data-touchscreen={
+            spec.hasTouchScreen ? (touchScreenLive ? 'an' : 'aus') : undefined
+          }
         />
+
+        {spec.hasTouchScreen && phase === 'running' && !menuOpen && (
+          <div class="stage-tools">
+            {/* Hiding the buttons takes the menu with them, so it comes along. */}
+            {controlsHidden && (
+              <button type="button" class="stage-tool" onClick={() => void openMenu()}>
+                Menü
+              </button>
+            )}
+            <button
+              type="button"
+              class="stage-tool"
+              aria-pressed={controlsHidden}
+              onClick={() => setControlsHidden(!controlsHidden)}
+            >
+              {controlsHidden ? 'Tasten einblenden' : 'Tasten ausblenden'}
+            </button>
+          </div>
+        )}
 
         {phase === 'loading' && <Overlay><p class="muted">Lädt …</p></Overlay>}
 
@@ -553,6 +590,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
         )}
       </div>
 
+      {!controlsHidden && (
       <TouchControls
         input={inputRef.current}
         buttons={spec.buttons}
@@ -561,6 +599,7 @@ export function Player({ game, baseUrl, onExit }: Props) {
         onMenu={() => void openMenu()}
         disabled={phase !== 'running' || menuOpen}
       />
+      )}
     </main>
   );
 }
