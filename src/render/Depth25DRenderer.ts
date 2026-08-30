@@ -425,10 +425,13 @@ export class Depth25DRenderer implements SceneRenderer {
     if (this.disposed || !ppuBlock) return;
 
     const scene = this.decoder.decode(ppuBlock);
-    if (!scene.displayOn) {
-      // Nothing to build a scene from: either the display is off, or the game
-      // is in a mode with no tiles. Either way the finished picture is the
-      // honest thing to show.
+    if (!scene.displayOn || scene.ground.length === 0) {
+      // Nothing to build a scene from: the display is off, the game is in a
+      // mode with no tiles, or every layer is pinned to the screen. The last
+      // is a title screen, a menu, a battle — a composed picture with no
+      // ground to walk on, and standing its sprites up in a perspective that
+      // has nothing under it would only distort it. Either way the finished
+      // picture is the honest thing to show.
       this.drawFlat(pixels);
       return;
     }
@@ -496,6 +499,13 @@ export class Depth25DRenderer implements SceneRenderer {
     // A HUD layer is glass, not world: flat, unlit, and always on top. It
     // keeps the console's own rectangle rather than being stretched across the
     // screen — a text box drawn for 240 pixels stays legible at 240 pixels.
+    //
+    // Glass means transparent where the game left it transparent. Such a layer
+    // is mostly the empty tile — a text box occupies a few rows and the rest is
+    // colour zero — so drawing it opaque covers the console's whole rectangle
+    // with the palette's first colour, which in most games is black. That is
+    // precisely what it looked like: the world all around, and a black hole in
+    // the middle of the screen.
     if (scene.hud.length > 0) {
       const box = fitViewport(
         this.canvas.width,
@@ -508,7 +518,7 @@ export class Depth25DRenderer implements SceneRenderer {
       for (const layer of scene.hud) {
         if (layer.cells.count === 0) continue;
         const count = this.fillCells(layer.cells, this.windowData, false);
-        this.drawTiles(this.windowData, count, this.flatProj, 0, 0, false);
+        this.drawTiles(this.windowData, count, this.flatProj, 0, 0, true);
       }
       gl.enable(gl.DEPTH_TEST);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);

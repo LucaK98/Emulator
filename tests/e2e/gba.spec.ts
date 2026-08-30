@@ -107,6 +107,39 @@ test.describe('Game Boy Advance', () => {
     const tilted = await drawnAspect(page);
     expect(tilted).not.toBeCloseTo(GBA_ASPECT, 2);
   });
+
+  /*
+   * A layer pinned to the screen is glass, not a backdrop.
+   *
+   * The depth probe's BG0 carries furniture across its top six rows and the
+   * empty tile everywhere below, exactly as a game's text layer does: mostly
+   * nothing, with colour zero meaning "show what is behind me". Drawing it
+   * without honouring that painted colour zero as an opaque black rectangle
+   * over the console's whole picture — the world was there, all around it,
+   * and the middle of the screen was a black hole.
+   */
+  test('lets the world show through the transparent parts of the HUD', async ({ page }) => {
+    await page.goto('./');
+    await page.locator('input[type=file]').setInputFiles(DEPTH_ROM);
+    await page.locator('.game-tile').first().click();
+    await page.getByRole('button', { name: 'Spielen' }).click();
+    await expect
+      .poll(() => canvasColourCount(page), { timeout: 20_000, intervals: [500] })
+      .toBeGreaterThan(1);
+
+    await page.getByRole('button', { name: 'Menü' }).click();
+    await page.getByRole('button', { name: '2.5D aus' }).click();
+    await expect(page.getByRole('button', { name: '2.5D an' })).toBeVisible();
+    await page.getByRole('button', { name: 'Weiter' }).click();
+    await page.waitForTimeout(1500);
+
+    // The middle of the canvas sits halfway down the console's rectangle,
+    // which is well inside BG0's empty half. The ground is drawn there, so
+    // hardly any of it may be black.
+    await expect
+      .poll(() => darkFraction(page), { timeout: 10_000, intervals: [500] })
+      .toBeLessThan(0.25);
+  });
 });
 
 /**
@@ -201,5 +234,38 @@ async function bandColours(
       // 5-bit channels scale to 0, 8, 16 ... 248; round each to 0 or 255.
       return [data[i]!, data[i + 1]!, data[i + 2]!].map((v) => (v > 127 ? 255 : 0));
     });
+  });
+}
+
+/**
+ * How much of the middle of the canvas is black, as a fraction.
+ *
+ * Sampled over a patch around the centre rather than a single pixel, so a
+ * stray dark tile does not decide the answer.
+ */
+async function darkFraction(page: import('@playwright/test').Page): Promise<number> {
+  return page.locator('canvas.player-canvas').evaluate((canvas) => {
+    const source = canvas as HTMLCanvasElement;
+    const probe = document.createElement('canvas');
+    probe.width = source.width;
+    probe.height = source.height;
+    const ctx = probe.getContext('2d');
+    if (!ctx) return 1;
+    ctx.drawImage(source, 0, 0);
+
+    const width = Math.max(2, Math.round(probe.width * 0.3));
+    const height = Math.max(2, Math.round(probe.height * 0.12));
+    const { data } = ctx.getImageData(
+      Math.round((probe.width - width) / 2),
+      Math.round((probe.height - height) / 2),
+      width,
+      height,
+    );
+
+    let dark = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i]! + data[i + 1]! + data[i + 2]! <= 24) dark++;
+    }
+    return dark / (data.length / 4);
   });
 }
