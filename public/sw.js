@@ -9,13 +9,22 @@
  *    "coi-serviceworker" trick, inlined here so we only ship one worker.
  *
  * 2. Offline caching. The WASM cores are large; once fetched they should never
- *    be downloaded again. Everything same-origin is cached
- *    stale-while-revalidate, navigations fall back to the cached shell.
+ *    be downloaded again, so everything same-origin is cached
+ *    stale-while-revalidate — everything except the page itself.
+ *
+ *    The page is the exception because it is the one file whose name never
+ *    changes while its contents do: it names the hashed script of the build it
+ *    belongs to. Served from the cache it names the previous build's script,
+ *    so a deployed change arrives a launch late — the user reloads, sees the
+ *    old app, and cannot tell that apart from a fix that did not work. So the
+ *    page is fetched from the network first and only falls back to the cache
+ *    when there is no network, which is what keeps the installed app opening
+ *    offline.
  *
  * Bump CACHE_VERSION to invalidate everything.
  */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `emu-${CACHE_VERSION}`;
 
 self.addEventListener('install', () => {
@@ -82,14 +91,23 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => undefined);
 
-      if (cached) {
+      // The page itself: network first, so a new build is never one launch
+      // behind. Hashed assets keep the cache, since a changed asset is a
+      // changed name and the cached copy can never be the wrong one.
+      if (request.mode === 'navigate') {
+        const fresh = await network;
+        if (fresh) return withIsolationHeaders(fresh);
+        if (cached) return withIsolationHeaders(cached);
+      }
+      else if (cached) {
         // Stale-while-revalidate: serve the cache now, refresh in the background.
         event.waitUntil(network);
         return withIsolationHeaders(cached);
       }
-
-      const fresh = await network;
-      if (fresh) return withIsolationHeaders(fresh);
+      else {
+        const fresh = await network;
+        if (fresh) return withIsolationHeaders(fresh);
+      }
 
       // Offline and uncached. For navigations fall back to the app shell so the
       // installed PWA still opens.

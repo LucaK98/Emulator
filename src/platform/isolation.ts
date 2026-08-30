@@ -74,9 +74,18 @@ export async function ensureIsolation(): Promise<IsolationState> {
   }
 }
 
-/** Registers the worker for offline caching without forcing a reload. */
+/**
+ * Registers the worker for offline caching without forcing a reload.
+ *
+ * The update check matters: an installed app is opened, not navigated to, and
+ * a worker that is never asked to update keeps serving the build it was
+ * installed with.
+ */
 export async function registerServiceWorker(): Promise<void> {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
   const base = import.meta.env.BASE_URL;
-  await navigator.serviceWorker.register(`${base}sw.js`, { scope: base }).catch(() => {});
+  const registration = await navigator.serviceWorker
+    .register(`${base}sw.js`, { scope: base })
+    .catch(() => null);
+  await registration?.update().catch(() => {});
 }
