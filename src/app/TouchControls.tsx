@@ -86,8 +86,18 @@ export function TouchControls({
 
     const pointers = new Map<number, { x: number; y: number }>();
 
-    /** Geometry is re-measured lazily; layout only changes on resize/rotate. */
+    /*
+     * Geometry is measured only when a hit test is about to use it.
+     *
+     * Measuring forces the browser to lay the page out, and the events that
+     * move the controls — a visual-viewport scroll, a resize — arrive in
+     * bursts, most thickly while the device is being turned, which is exactly
+     * when the layout is dirty and each read is at its most expensive. So they
+     * only mark the measurement stale; the reading itself happens at the next
+     * press or move, of which there is at most one a frame.
+     */
     let geometry = measure();
+    let stale = false;
 
     function measure() {
       return {
@@ -105,8 +115,23 @@ export function TouchControls({
       };
     }
 
-    const remeasure = () => {
-      geometry = measure();
+    /** The controls have moved; whatever was measured no longer describes them. */
+    const invalidate = () => {
+      stale = true;
+    };
+
+    /*
+     * A turn of the device leaves any finger already down in a place that no
+     * longer means anything: the controls are somewhere else now, and the last
+     * known coordinate can easily fall on a different button than the one being
+     * held — pressing up and walking down. There is no way to know where the
+     * finger is until it moves or lifts, so the press is dropped.
+     */
+    const forgetPointers = () => {
+      invalidate();
+      if (pointers.size === 0) return;
+      pointers.clear();
+      recompute();
     };
 
     function maskFor(x: number, y: number): number {
@@ -164,6 +189,10 @@ export function TouchControls({
     }
 
     function recompute() {
+      if (stale) {
+        geometry = measure();
+        stale = false;
+      }
       let mask = 0;
       for (const point of pointers.values()) mask |= maskFor(point.x, point.y);
       input.set('touch', mask);
@@ -187,7 +216,7 @@ export function TouchControls({
       // shifting under the layout — and a stale rectangle means the button is
       // simply dead. A press is rare enough that measuring is free; what it
       // buys is that a press is always tested against where the buttons are.
-      remeasure();
+      stale = true;
       surface.setPointerCapture(event.pointerId);
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       recompute();
@@ -209,27 +238,27 @@ export function TouchControls({
     surface.addEventListener('pointermove', onPointerMove);
     surface.addEventListener('pointerup', onPointerEnd);
     surface.addEventListener('pointercancel', onPointerEnd);
-    window.addEventListener('resize', remeasure);
-    window.addEventListener('orientationchange', remeasure);
+    window.addEventListener('resize', forgetPointers);
+    window.addEventListener('orientationchange', forgetPointers);
     // A scroll anywhere in the page moves the controls with it, and iOS scrolls
     // the page on its own account often enough to matter. Capture, because the
     // scroll usually happens on an inner element and does not bubble.
-    window.addEventListener('scroll', remeasure, true);
+    window.addEventListener('scroll', invalidate, true);
     // Pinch-zoom and the on-screen keyboard move the visual viewport without
     // resizing the layout viewport, so window resize never fires.
-    visualViewport?.addEventListener('resize', remeasure);
-    visualViewport?.addEventListener('scroll', remeasure);
+    visualViewport?.addEventListener('resize', invalidate);
+    visualViewport?.addEventListener('scroll', invalidate);
 
     return () => {
       surface.removeEventListener('pointerdown', onPointerDown);
       surface.removeEventListener('pointermove', onPointerMove);
       surface.removeEventListener('pointerup', onPointerEnd);
       surface.removeEventListener('pointercancel', onPointerEnd);
-      window.removeEventListener('resize', remeasure);
-      window.removeEventListener('orientationchange', remeasure);
-      window.removeEventListener('scroll', remeasure, true);
-      visualViewport?.removeEventListener('resize', remeasure);
-      visualViewport?.removeEventListener('scroll', remeasure);
+      window.removeEventListener('resize', forgetPointers);
+      window.removeEventListener('orientationchange', forgetPointers);
+      window.removeEventListener('scroll', invalidate, true);
+      visualViewport?.removeEventListener('resize', invalidate);
+      visualViewport?.removeEventListener('scroll', invalidate);
       input.set('touch', 0);
     };
   }, [input, disabled, hasShoulders, hasDiamond, actions.length, onAction]);

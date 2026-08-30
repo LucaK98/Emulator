@@ -127,4 +127,75 @@ test.describe('touch controls after the page moves', () => {
     );
     expect(apart).toEqual([false, false]);
   });
+
+  /*
+   * A held direction does not survive a turn of the device.
+   *
+   * Rotating moves the controls somewhere else entirely, and a finger that was
+   * already down keeps its last known coordinate — which now falls on a
+   * different part of the pad. Held up, the character walked down, and it
+   * looked as though the buttons had stopped working. There is no way to know
+   * where the finger is until it moves or lifts, so the press is dropped.
+   */
+  test('drops a held direction when the device is turned', async ({ page }) => {
+    await startPlaying(page);
+
+    const pad = await page.locator('.dpad').boundingBox();
+    expect(pad).not.toBeNull();
+    await page.mouse.move(pad!.x + pad!.width / 2, pad!.y + pad!.height * 0.15);
+    await page.mouse.down();
+    await expect(page.locator('.dpad-up')).toHaveClass(/is-pressed/);
+
+    await page.setViewportSize({ width: 852, height: 393 });
+
+    // Nothing may still be held, and least of all the opposite direction.
+    await expect(page.locator('.dpad-up')).not.toHaveClass(/is-pressed/);
+    await expect(page.locator('.dpad-down')).not.toHaveClass(/is-pressed/);
+    await page.mouse.up();
+  });
+
+  /*
+   * The render loop does not measure the page.
+   *
+   * Asking an element how large it is forces the browser to lay the page out
+   * first. The loop did that once a frame — sixty forced layouts a second for
+   * a number that changes twice in a session — and it was at its worst while
+   * the device was being turned, when the layout is dirty anyway. That is what
+   * the stuttering on rotation was.
+   */
+  test('does not measure the canvas on every frame', async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as unknown as { __rects: number }).__rects = 0;
+      const original = Element.prototype.getBoundingClientRect;
+      Element.prototype.getBoundingClientRect = function (this: Element) {
+        if (this instanceof HTMLCanvasElement) {
+          (window as unknown as { __rects: number }).__rects++;
+        }
+        return original.call(this);
+      };
+    });
+
+    await startPlaying(page);
+    await page.waitForTimeout(500);
+    await page.evaluate(() => {
+      (window as unknown as { __rects: number }).__rects = 0;
+    });
+
+    // Two seconds of play: at sixty frames a second that was over a hundred.
+    await page.waitForTimeout(2000);
+    const reads = await page.evaluate(
+      () => (window as unknown as { __rects: number }).__rects,
+    );
+    expect(reads).toBeLessThan(10);
+  });
+
 });
+
+/** Loads the probe cartridge and gets as far as the controls being live. */
+async function startPlaying(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('./');
+  await page.locator('input[type=file]').setInputFiles(GB_ROM);
+  await page.locator('.game-tile').first().click();
+  await page.getByRole('button', { name: 'Spielen' }).click();
+  await expect(page.getByRole('button', { name: 'Start' })).toBeVisible();
+}

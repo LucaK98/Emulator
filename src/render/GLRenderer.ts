@@ -13,6 +13,7 @@
 
 import type { SystemSpec } from '../core/systems';
 import type { SceneRenderer } from './SceneRenderer';
+import { CanvasSize } from './canvasSize';
 
 const VERTEX_SHADER = `#version 300 es
 in vec2 a_position;
@@ -55,6 +56,8 @@ export class GLRenderer implements SceneRenderer {
   readonly needsPpuState = false;
 
   private gl: WebGL2RenderingContext;
+  /** The canvas's device-pixel size, without a layout read every frame. */
+  private readonly size: CanvasSize;
   private texture: WebGLTexture;
   private program: WebGLProgram;
   private vao: WebGLVertexArrayObject;
@@ -70,6 +73,7 @@ export class GLRenderer implements SceneRenderer {
     private readonly spec: SystemSpec,
   ) {
     this.gl = gl;
+    this.size = new CanvasSize(canvas);
     this.program = createProgram(gl, VERTEX_SHADER, FRAGMENT_SHADER);
     this.texture = createScreenTexture(gl, spec.width, spec.height);
     this.frameWidth = spec.width;
@@ -97,9 +101,7 @@ export class GLRenderer implements SceneRenderer {
 
   /** Resizes the drawing buffer to the element's size in device pixels. */
   resize(devicePixelRatio: number): void {
-    const rect = this.canvas.getBoundingClientRect();
-    const width = Math.max(1, Math.round(rect.width * devicePixelRatio));
-    const height = Math.max(1, Math.round(rect.height * devicePixelRatio));
+    const { width, height } = this.size.devicePixels(devicePixelRatio);
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;
@@ -171,6 +173,7 @@ export class GLRenderer implements SceneRenderer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.size.dispose();
     const gl = this.gl;
     gl.deleteTexture(this.texture);
     gl.deleteProgram(this.program);

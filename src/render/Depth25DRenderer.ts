@@ -34,6 +34,7 @@ export interface FrameDecoder {
 import { fitViewport } from './GLRenderer';
 import { identity, lookAt, multiply, orthographic, perspective, type Mat4 } from './mat4';
 import type { SceneRenderer } from './SceneRenderer';
+import { CanvasSize } from './canvasSize';
 
 export interface DepthSettings {
   /** Camera pitch in degrees; 90 looks straight down, i.e. flat. */
@@ -318,6 +319,8 @@ export class Depth25DRenderer implements SceneRenderer {
 
   settings: DepthSettings = { ...DEFAULT_DEPTH_SETTINGS };
   readonly heights = new TileHeightModel();
+  /** The canvas's device-pixel size, without a layout read every frame. */
+  private readonly size: CanvasSize;
   private memory: WorldMemory | null = null;
   /** An explored world from an earlier session, until the first frame runs. */
   private restoredWorld: WorldSnapshot | null = null;
@@ -355,7 +358,9 @@ export class Depth25DRenderer implements SceneRenderer {
     private readonly flatVao: WebGLVertexArrayObject,
     private readonly frameTexture: WebGLTexture,
     private readonly sideTexture: WebGLTexture,
-  ) {}
+  ) {
+    this.size = new CanvasSize(canvas);
+  }
 
   static create(canvas: HTMLCanvasElement, spec: SystemSpec): Depth25DRenderer | null {
     const decoder: FrameDecoder =
@@ -412,9 +417,7 @@ export class Depth25DRenderer implements SceneRenderer {
   }
 
   resize(devicePixelRatio: number): void {
-    const rect = this.canvas.getBoundingClientRect();
-    const width = Math.max(1, Math.round(rect.width * devicePixelRatio));
-    const height = Math.max(1, Math.round(rect.height * devicePixelRatio));
+    const { width, height } = this.size.devicePixels(devicePixelRatio);
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;
@@ -530,6 +533,7 @@ export class Depth25DRenderer implements SceneRenderer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.size.dispose();
     const gl = this.gl;
     gl.deleteProgram(this.tileProgram);
     gl.deleteProgram(this.spriteProgram);
