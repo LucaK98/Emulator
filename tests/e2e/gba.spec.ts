@@ -8,6 +8,10 @@ const FAR_CART_ROM = fileURLToPath(
 const DEPTH_ROM = fileURLToPath(
   new URL('../roms/gba-depth-probe.gba', import.meta.url),
 );
+/** A scrolling map with a character walking a corridor of ground. */
+const OVERWORLD_ROM = fileURLToPath(
+  new URL('../roms/gba-overworld-probe.gba', import.meta.url),
+);
 
 /** Native Game Boy Advance resolution. */
 const GBA_ASPECT = 240 / 160;
@@ -140,6 +144,36 @@ test.describe('Game Boy Advance', () => {
       .poll(() => darkFraction(page), { timeout: 10_000, intervals: [500] })
       .toBeLessThan(0.25);
   });
+
+  /*
+   * Whether the height model learns anything on this console.
+   *
+   * It had never been exercised here: the Game Boy has a probe that walks a
+   * character past scenery, and the two Game Boy Advance probes have one that
+   * scrolls without a character and one with a character that does not scroll
+   * — neither of which the model can learn from. So the entire path on the
+   * console the feature was asked for went untested, which is not a gap to
+   * find out about from a screenshot.
+   */
+  test('works out which tiles stand up while the map is walked', async ({ page }) => {
+    await page.goto('./');
+    await page.locator('input[type=file]').setInputFiles(OVERWORLD_ROM);
+    await page.locator('.game-tile').first().click();
+    await page.getByRole('button', { name: 'Spielen' }).click();
+    await page.waitForTimeout(600);
+
+    await page.getByRole('button', { name: 'Menü' }).click();
+    await page.getByRole('button', { name: '2.5D aus', exact: true }).click();
+    await expect(page.getByRole('button', { name: '2.5D an', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Weiter' }).click();
+
+    // The map scrolls on its own and the character walks with it, so the
+    // evidence accumulates without any input. How long that takes depends on
+    // the frame rate, so it is polled rather than timed.
+    await expect
+      .poll(() => raisedTiles(page), { timeout: 60_000, intervals: [2000] })
+      .toBeGreaterThan(0);
+  });
 });
 
 /**
@@ -268,4 +302,13 @@ async function darkFraction(page: import('@playwright/test').Page): Promise<numb
     }
     return dark / (data.length / 4);
   });
+}
+
+/** How many tiles the pause menu reports as standing up. */
+async function raisedTiles(page: import('@playwright/test').Page): Promise<number> {
+  await page.getByRole('button', { name: 'Menü' }).click();
+  const text = (await page.locator('.heights-readout').textContent()) ?? '';
+  await page.getByRole('button', { name: 'Weiter' }).click();
+  const match = text.match(/(\d+)\s+Kachel/);
+  return match ? Number(match[1]) : 0;
 }
