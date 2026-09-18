@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "gen:icons": "python3 scripts/gen-icons.py"
+    "gen:icons": "python3 scripts/gen-icons.py",
+    "gen:ganbatte-icons": "python3 scripts/gen-ganbatte-icons.py"
   },
   "dependencies": {
     "fflate": "^0.8.3",

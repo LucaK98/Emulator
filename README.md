@@ -139,6 +139,20 @@ Klappt das nicht, läuft die App trotzdem — der Core fällt dann auf Kopieren 
 
 `.github/workflows/deploy.yml` baut bei jedem Push auf `main` mit `BASE_PATH=/<repo>/` und veröffentlicht `dist/` auf GitHub Pages. In den Repo-Einstellungen muss unter *Pages* die Quelle auf **GitHub Actions** stehen.
 
+## Ganbatte – zweite App im selben Deploy
+
+Unter `public/ganbatte/` liegt ein täglicher **Spanisch-Lern-Tracker** als
+eigenständige PWA: Sprech-Streak mit Kalender, Vokabeln mit Spaced Repetition,
+Cognate-Trainer, Eselsbrücken-Sammlung und ein SMART-Ziel auf der GER-Skala.
+
+Mit dem Emulator hat er inhaltlich nichts zu tun; er teilt sich nur das
+Deployment. Weil Vite `public/` unverändert kopiert, landet er ohne Zutun unter
+`…/Emulator/ganbatte/` auf Pages und ist von dort aus separat zum
+Home-Bildschirm hinzufügbar (eigenes Manifest, eigener Service Worker, eigenes
+Icon). Er ist reines HTML/CSS/JS ohne Build-Schritt und ohne Abhängigkeiten.
+
+Details und Datenmodell: [`public/ganbatte/README.md`](public/ganbatte/README.md).
+
 ## ROMs
 
 Es sind keine Spiele im Repo, und es werden auch keine hinzugefügt — `.gitignore` blockt die entsprechenden Endungen. Spiele werden über den Datei-Import aus der Dateien-App geladen und verlassen das Gerät nie. Die einzige Ausnahme sind frei verteilbare Homebrew-Test-ROMs unter `tests/roms/`, die zur Prüfung der Core-Genauigkeit dienen.

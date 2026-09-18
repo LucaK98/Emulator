@@ -31,10 +31,11 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Verify icons are in sync with the generator
+      - name: Verify icons are in sync with the generators
         run: |
           python3 scripts/gen-icons.py
-          git diff --exit-code -- public/icons
+          python3 scripts/gen-ganbatte-icons.py
+          git diff --exit-code -- public/icons public/ganbatte/icons
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium

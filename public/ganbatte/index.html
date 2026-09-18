@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ganbatte – Spanisch jeden Tag</title>
+
+    <!-- viewport-fit=cover lässt die App bis in Notch und Home-Indikator
+         zeichnen; das CSS holt den Inhalt mit env(safe-area-inset-*) zurück. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="description" content="Täglicher Spanisch-Tracker: Sprech-Streak, Vokabel-SRS, Cognate-Trainer und SMART-Ziel. Alles lokal auf deinem Gerät." />
+    <meta name="theme-color" content="#c8553d" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- Start vom Home-Bildschirm ohne Safari-Leiste. Auf iOS ist das
+         zusätzlich das, was die App vor dem 7-Tage-Aufräumen des Speichers
+         bewahrt. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Ganbatte" />
+
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Bis das Modul geladen ist: ein ruhiger Platzhalter statt weißer Seite. -->
+      <p class="boot">¡Hola! Einen Moment …</p>
+    </div>
+    <noscript>
+      <p class="boot">Ganbatte braucht JavaScript – die App läuft komplett in deinem Browser.</p>
+    </noscript>
+    <script type="module" src="./js/main.js"></script>
+  </body>
+</html>
