@@ -669,11 +669,56 @@ h2 {
       max(var(--safe-left), var(--safe-right));
   }
 
+  /*
+   * The controls take the lower screen and arrange themselves around it.
+   *
+   * Half the display is exactly the lower screen, because the picture is two
+   * screens tall and centred — so the top edge of this surface sits on the
+   * seam. Select, Start and the menu go there, along the edge, where a stray
+   * tap costs nothing. What is left is the thumbs' half, and the pills having
+   * moved out of the middle is what makes room for a larger pad and larger
+   * face buttons. They were the mis-taps: on a pad a wrong tap is a step in
+   * the wrong direction, and on the face buttons it is the wrong action.
+   */
   .player.is-overlaid .touch-surface {
     grid-row: 1;
     grid-column: 1;
     align-self: end;
+    height: 50%;
     background: none;
+    grid-template-rows: auto 1fr auto auto;
+    grid-template-areas:
+      'system    system    system'
+      '.         .         .'
+      'shoulders shoulders shoulders'
+      'dpad      .         face';
+    gap: 0.5rem;
+    padding:
+      0.4rem calc(var(--safe-right) + 0.75rem)
+      calc(var(--safe-bottom) + 1.25rem) calc(var(--safe-left) + 0.75rem);
+  }
+
+  /* Along the seam rather than stacked between the thumbs. */
+  .player.is-overlaid .system-buttons {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.4rem;
+  }
+
+  .player.is-overlaid .dpad {
+    width: 9rem;
+    height: 9rem;
+  }
+
+  .player.is-overlaid .face-diamond {
+    gap: 0.3rem;
+  }
+
+  .player.is-overlaid .face-diamond .face-button {
+    width: 3.9rem;
+    height: 3.9rem;
+    font-size: 1.0625rem;
   }
 }
 

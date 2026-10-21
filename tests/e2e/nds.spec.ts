@@ -135,6 +135,42 @@ test.describe('Nintendo DS', () => {
     await expect(page.getByRole('button', { name: 'Tasten ausblenden' })).toHaveCount(0);
     await expect(page.locator('canvas.player-canvas')).not.toHaveAttribute('data-touchscreen');
   });
+
+  /*
+   * The thumbs get the lower half to themselves.
+   *
+   * Select, Start and the menu used to sit between the pad and the face
+   * buttons, which is where thumbs travel — so they were hit by accident, and
+   * everything was small because they took the width. They belong on the top
+   * edge of the lower screen, where a stray tap costs nothing, and the room
+   * that frees goes into the controls that a mis-tap actually hurts: a wrong
+   * tap on the pad is a step in the wrong direction.
+   */
+  test('puts the system buttons on the seam and leaves the thumbs more room', async ({
+    page,
+  }) => {
+    await page.goto('./');
+    await page.locator('input[type=file]').setInputFiles(NDS_ROM);
+    await page.locator('.game-tile').first().click();
+    await page.getByRole('button', { name: 'Spielen' }).click();
+    await expect(page.getByRole('button', { name: 'Start' })).toBeVisible();
+
+    const middle = await page.evaluate(() => window.innerHeight / 2);
+    const system = (await page.locator('.system-buttons').boundingBox())!;
+    const dpad = (await page.locator('.dpad').boundingBox())!;
+    const face = (await page.locator('.face-button').first().boundingBox())!;
+
+    // On the lower screen's top edge, which is the middle of the display.
+    expect(Math.abs(system.y - middle)).toBeLessThan(24);
+    // And out of the way of the thumbs, rather than between them.
+    expect(system.y + system.height).toBeLessThan(dpad.y);
+
+    // Big enough to hit without looking. These are floors, not the design:
+    // what they rule out is the cramped row this replaced.
+    expect(dpad.width).toBeGreaterThanOrEqual(140);
+    expect(face.width).toBeGreaterThanOrEqual(58);
+  });
+
 });
 
 /** Where the drawn picture sits on the display, in CSS pixels. */
