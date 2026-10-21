@@ -77,7 +77,7 @@ test.describe('touch controls after the page moves', () => {
    * action refused. What that looks like from here is defaultPrevented on the
    * second touchend and not on the first.
    */
-  test('refuses the second tap of a double tap, and only that one', async ({ page }) => {
+  test('refuses the second tap of a pair, and leaves taps elsewhere alone', async ({ page }) => {
     await page.goto('./');
     await page.locator('input[type=file]').setInputFiles(GB_ROM);
     await page.locator('.game-tile').first().click();
@@ -115,6 +115,10 @@ test.describe('touch controls after the page moves', () => {
     expect(quick[1], 'the second of a quick pair is refused').toBe(true);
 
     // A tap well away from the last one is a first tap again, not a double.
+    // The pair above has to lapse first: a series in one spot keeps being
+    // refused for as long as it goes on, which is what stops the page zooming
+    // when a direction is hammered.
+    await page.waitForTimeout(600);
     await page.evaluate(() => {
       (window as unknown as { prevented: boolean[] }).prevented = [];
     });
@@ -227,6 +231,68 @@ test.describe('touch controls after the page moves', () => {
     expect(pad.y + pad.height).toBeLessThanOrEqual(shrunk.wanted);
   });
 
+
+  /*
+   * Hammering one direction must not zoom the page.
+   *
+   * The guard refused the second tap of a pair and then started counting
+   * afresh, so in a rapid series it let every other tap through — and two of
+   * those, 240 ms apart in the same spot, are a double tap like any other. The
+   * page jumped, and a zoomed page puts the controls somewhere the thumbs are
+   * not. Pressing down repeatedly on a d-pad is the most ordinary thing there
+   * is, so a series has to be refused for as long as it lasts.
+   *
+   * Refusing costs nothing here: the controls are driven by pointer events,
+   * which this does not touch. Only the synthesised click is suppressed, and
+   * no control depends on one.
+   */
+  test('refuses every tap of a rapid series in one spot, not every other one', async ({
+    page,
+  }) => {
+    await startPlaying(page);
+    await recordTouchEnds(page);
+
+    const pad = (await page.locator('.dpad').boundingBox())!;
+    const x = pad.x + pad.width / 2;
+    const y = pad.y + pad.height * 0.85;
+
+    for (let i = 0; i < 5; i++) await page.touchscreen.tap(x, y);
+    await page.waitForTimeout(100);
+
+    const series = await page.evaluate(
+      () => (window as unknown as { prevented: boolean[] }).prevented,
+    );
+    expect(series).toHaveLength(5);
+    expect(series[0], 'the first tap of a series is an ordinary tap').toBe(false);
+    expect(
+      series.slice(1),
+      'every later tap in the series must be refused, or a pair of the allowed ones is a double tap',
+    ).toEqual([true, true, true, true]);
+  });
+
+  /*
+   * A finger already down when the visible area changes.
+   *
+   * Safari's toolbar sliding in resizes the visual viewport and moves the
+   * controls, but fires no pointer event — so the held direction stayed
+   * latched with a coordinate that no longer pointed at anything. The game
+   * kept walking and nothing the thumbs did made any difference.
+   */
+  test('drops a held direction when the visible area changes under it', async ({ page }) => {
+    await startPlaying(page);
+
+    const pad = (await page.locator('.dpad').boundingBox())!;
+    await page.mouse.move(pad.x + pad.width / 2, pad.y + pad.height * 0.85);
+    await page.mouse.down();
+    await expect(page.locator('.dpad-down')).toHaveClass(/is-pressed/);
+
+    // The toolbar cannot be summoned here; the event it fires can.
+    await page.evaluate(() => window.visualViewport?.dispatchEvent(new Event('resize')));
+
+    await expect(page.locator('.dpad-down')).not.toHaveClass(/is-pressed/);
+    await page.mouse.up();
+  });
+
 });
 
 /** Loads the probe cartridge and gets as far as the controls being live. */
@@ -236,4 +302,19 @@ async function startPlaying(page: import('@playwright/test').Page): Promise<void
   await page.locator('.game-tile').first().click();
   await page.getByRole('button', { name: 'Spielen' }).click();
   await expect(page.getByRole('button', { name: 'Start' })).toBeVisible();
+}
+
+/** Collects, for each touchend the page saw, whether the guard refused it. */
+async function recordTouchEnds(page: import('@playwright/test').Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as unknown as { prevented: boolean[] }).prevented = [];
+    document.addEventListener(
+      'touchend',
+      (event) => {
+        (window as unknown as { prevented: boolean[] }).prevented.push(event.defaultPrevented);
+      },
+      // Last in the chain, so the guard has already had its say.
+      false,
+    );
+  });
 }

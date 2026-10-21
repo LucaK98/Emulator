@@ -649,9 +649,22 @@ function useDoubleTapGuard(ref: { current: HTMLElement | null }): void {
 
       if (now - lastTime < WINDOW_MS && near && event.cancelable) {
         event.preventDefault();
-        // Reset, so a third tap is a first tap again and a rapid series of
-        // presses does not go permanently dead.
-        lastTime = 0;
+        /*
+         * Keep counting from this tap rather than starting afresh.
+         *
+         * Starting afresh meant a rapid series was refused only every other
+         * time — and two of the taps that got through, a couple of hundred
+         * milliseconds apart in the same spot, are a double tap like any
+         * other. Hammering a direction on the d-pad zoomed the page, which
+         * puts the controls where the thumbs are not.
+         *
+         * Refusing a whole series costs nothing: the controls are driven by
+         * pointer events, which this does not touch. All that is suppressed
+         * is the synthesised click, and no control depends on one.
+         */
+        lastTime = now;
+        lastX = touch.clientX;
+        lastY = touch.clientY;
         return;
       }
       lastTime = now;

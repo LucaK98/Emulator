@@ -121,11 +121,19 @@ export function TouchControls({
     };
 
     /*
-     * A turn of the device leaves any finger already down in a place that no
-     * longer means anything: the controls are somewhere else now, and the last
-     * known coordinate can easily fall on a different button than the one being
-     * held — pressing up and walking down. There is no way to know where the
-     * finger is until it moves or lifts, so the press is dropped.
+     * A turn of the device — or the browser's toolbar sliding in, which
+     * resizes the visible area and moves everything with it — leaves any
+     * finger already down in a place that no longer means anything. The
+     * controls are somewhere else now, and the last known coordinate can
+     * easily fall on a different button than the one being held: pressing up
+     * and walking down. Worse, neither fires a pointer event, so the mask
+     * stayed latched on whatever was held and nothing the thumbs did after
+     * that made any difference.
+     *
+     * There is no way to know where the finger is until it moves or lifts, so
+     * the press is dropped. A scroll is left alone: it moves the controls too,
+     * but iOS raises them often enough on its own that cancelling a press
+     * every time would be worse than re-measuring.
      */
     const forgetPointers = () => {
       invalidate();
@@ -246,7 +254,7 @@ export function TouchControls({
     window.addEventListener('scroll', invalidate, true);
     // Pinch-zoom and the on-screen keyboard move the visual viewport without
     // resizing the layout viewport, so window resize never fires.
-    visualViewport?.addEventListener('resize', invalidate);
+    visualViewport?.addEventListener('resize', forgetPointers);
     visualViewport?.addEventListener('scroll', invalidate);
 
     return () => {
@@ -257,7 +265,7 @@ export function TouchControls({
       window.removeEventListener('resize', forgetPointers);
       window.removeEventListener('orientationchange', forgetPointers);
       window.removeEventListener('scroll', invalidate, true);
-      visualViewport?.removeEventListener('resize', invalidate);
+      visualViewport?.removeEventListener('resize', forgetPointers);
       visualViewport?.removeEventListener('scroll', invalidate);
       input.set('touch', 0);
     };
