@@ -189,6 +189,44 @@ test.describe('touch controls after the page moves', () => {
     expect(reads).toBeLessThan(10);
   });
 
+
+  /*
+   * The controls sit over the part of the screen that is actually visible.
+   *
+   * A fixed element is placed against the layout viewport, which on iOS is the
+   * page as if the browser's toolbar were not there. The bottom of the player
+   * — where the buttons are — then ends up behind the toolbar, and slides
+   * about every time it does. No toolbar can be simulated here, so the chain
+   * is checked in its two halves: that the visual viewport is reported into
+   * the custom properties, and that the player is laid out from them.
+   */
+  test('follows the visible part of the screen rather than the whole page', async ({
+    page,
+  }) => {
+    await startPlaying(page);
+
+    // First half: the tracker writes what the browser reports.
+    const reported = await page.evaluate(() => ({
+      variable: getComputedStyle(document.documentElement).getPropertyValue('--vv-height').trim(),
+      actual: `${window.visualViewport?.height ?? 0}px`,
+    }));
+    expect(reported.variable).toBe(reported.actual);
+
+    // Second half: the layout follows the property. Shrinking it stands in for
+    // a toolbar sliding in and taking the bottom of the screen.
+    const shrunk = await page.evaluate(() => {
+      const height = (window.visualViewport?.height ?? 0) - 120;
+      document.documentElement.style.setProperty('--vv-height', `${height}px`);
+      const player = document.querySelector('.player')!.getBoundingClientRect();
+      return { wanted: height, player: Math.round(player.height) };
+    });
+    expect(shrunk.player).toBe(shrunk.wanted);
+
+    // And the controls came with it, rather than staying behind the toolbar.
+    const pad = (await page.locator('.dpad').boundingBox())!;
+    expect(pad.y + pad.height).toBeLessThanOrEqual(shrunk.wanted);
+  });
+
 });
 
 /** Loads the probe cartridge and gets as far as the controls being live. */

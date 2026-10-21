@@ -369,8 +369,17 @@ export class Depth25DRenderer implements SceneRenderer {
 
     const gl = canvas.getContext('webgl2', {
       alpha: false,
-      antialias: true,
+      /*
+       * No multisampling. The scene is pixel art on flat-shaded blocks, and
+       * smoothing their edges means shading the whole canvas several times
+       * over — measured here as the single most expensive setting in this
+       * renderer, and this is the view that already asks the most of the
+       * device.
+       */
+      antialias: false,
       depth: true,
+      // Kept, unlike the multisampling: this is what lets the picture survive
+      // a pause, and what every rendering test reads the canvas through.
       preserveDrawingBuffer: true,
       powerPreference: 'low-power',
     });

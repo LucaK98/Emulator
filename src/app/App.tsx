@@ -5,6 +5,7 @@ import { Player } from './Player';
 import { Settings } from './Settings';
 import { storageIsAtRiskOfEviction } from '../platform/device';
 import { ensureIsolation, registerServiceWorker, type IsolationState } from '../platform/isolation';
+import { trackVisualViewport } from '../platform/viewport';
 import { requestPersistentStorage, type StorageStatus } from '../storage/persist';
 import type { GameEntry } from '../storage/library';
 
@@ -23,6 +24,11 @@ export function App() {
   const [bypassed, setBypassed] = useState(() => sessionStorage.getItem(BYPASS_KEY) === '1');
   const [playing, setPlaying] = useState<GameEntry | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // The player is pinned to the part of the screen that is actually visible,
+  // which only the visual viewport knows about. Started before anything else
+  // so the very first layout is already right.
+  useEffect(trackVisualViewport, []);
 
   useEffect(() => {
     let cancelled = false;

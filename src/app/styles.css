@@ -358,9 +358,26 @@ h2 {
    * Pinned rather than merely tall: while a game is on screen nothing may
    * scroll. A stray scroll on iOS — from a double tap, the dynamic toolbar,
    * a focus jump — moves the controls out from under the player's thumbs.
+   *
+   * Pinned to the part of the screen that is actually visible, too. A fixed
+   * element is placed against the layout viewport, which on iOS is the page
+   * as if the browser's toolbar were not there — so the bottom of this one,
+   * where the buttons are, ends up behind the toolbar, and slides about
+   * whenever it does. The custom properties follow the visual viewport; the
+   * fallbacks are the old behaviour, for browsers that do not report one.
    */
   position: fixed;
-  inset: 0;
+  top: var(--vv-top, 0px);
+  left: var(--vv-left, 0px);
+  width: var(--vv-width, 100%);
+  height: var(--vv-height, 100%);
+  /*
+   * The shared screen rule asks for a full dynamic viewport, which would hold
+   * this at the page's height no matter what the box above says. Mixing the
+   * two is how the controls ended up measured against one viewport and drawn
+   * against the other.
+   */
+  min-height: 0;
   /*
    * No browser gesture belongs here. The panels that need to scroll ask for it
    * back explicitly below.

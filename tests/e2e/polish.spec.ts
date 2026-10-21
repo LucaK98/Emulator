@@ -112,6 +112,34 @@ test.describe('rewind, fast-forward and screenshots', () => {
     await page.getByRole('button', { name: 'Einstellungen' }).click();
     await expect(page.locator('.slider-value').first()).toContainText('30');
   });
+
+  /*
+   * The picture stays put while the game is paused.
+   *
+   * A canvas is cleared once the browser has composited it, so an emulator
+   * that has stopped producing frames would leave black behind the pause
+   * menu. The flag that would have prevented it — keeping the buffer — is one
+   * the browser charges for on every single frame, which is a steep price for
+   * something that only matters when nothing is happening. The last frame is
+   * drawn again instead, once the emulator falls quiet.
+   */
+  test('keeps the picture behind the pause menu', async ({ page }) => {
+    await page.goto('./');
+    await page.locator('input[type=file]').setInputFiles(GB_ROM);
+    await page.locator('.game-tile').first().click();
+    await page.getByRole('button', { name: 'Spielen' }).click();
+    await expect
+      .poll(() => canvasColours(page), { timeout: 20_000, intervals: [500] })
+      .toBeGreaterThan(1);
+
+    await page.getByRole('button', { name: 'Menü' }).click();
+    await expect(page.getByRole('button', { name: 'Weiter' })).toBeVisible();
+
+    // Well past the point where the emulator counts as quiet rather than slow.
+    await page.waitForTimeout(1500);
+    expect(await canvasColours(page), 'the paused game must not be black').toBeGreaterThan(1);
+  });
+
 });
 
 /**
@@ -224,5 +252,23 @@ async function measureScroll(page: import('@playwright/test').Page): Promise<num
       }
       return bestOffset;
     }
+  });
+}
+
+/** Distinct colours on the canvas; a blank one has a single colour. */
+async function canvasColours(page: import('@playwright/test').Page): Promise<number> {
+  return page.locator('canvas.player-canvas').evaluate((canvas) => {
+    const probe = document.createElement('canvas');
+    probe.width = 48;
+    probe.height = 32;
+    const ctx = probe.getContext('2d');
+    if (!ctx) return 0;
+    ctx.drawImage(canvas as HTMLCanvasElement, 0, 0, probe.width, probe.height);
+    const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
+    const seen = new Set<number>();
+    for (let i = 0; i < data.length; i += 4) {
+      seen.add((data[i]! << 16) | (data[i + 1]! << 8) | data[i + 2]!);
+    }
+    return seen.size;
   });
 }
