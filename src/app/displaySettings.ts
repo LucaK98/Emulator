@@ -7,12 +7,28 @@
 
 const KEY = 'display-settings';
 
+/**
+ * How the picture is scaled up to the screen.
+ *
+ * 'hart' is nearest neighbour: every emulated pixel is a hard block. Where the
+ * scale is a whole number that is exactly right, and it is what the console
+ * itself looks like. Where it is not — the DS fills a phone at about 4.6
+ * device pixels per emulated one — some rows come out a pixel thicker than
+ * their neighbours, and the unevenness crawls as the picture scrolls.
+ *
+ * 'weich' blends across one output pixel at each boundary and leaves the
+ * insides of the blocks exactly as they were, so the edges stop stair-stepping
+ * without the picture turning to mush.
+ */
+export type PictureFilter = 'hart' | 'weich';
+
 export interface DisplaySettings {
   /** LCD grid strength, 0 to 1; 0 disables it. */
   lcdGrid: number;
+  filter: PictureFilter;
 }
 
-export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = { lcdGrid: 0 };
+export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = { lcdGrid: 0, filter: 'hart' };
 
 export function loadDisplaySettings(): DisplaySettings {
   try {

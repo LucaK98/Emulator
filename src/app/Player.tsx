@@ -247,7 +247,11 @@ export function Player({ game, baseUrl, onExit }: Props) {
         if (world && depthRef.current === depth) depth.restoreWorld(world);
       });
     }
-    else (renderer as GLRenderer).gridStrength = loadDisplaySettings().lcdGrid;
+    else {
+      const display = loadDisplaySettings();
+      (renderer as GLRenderer).gridStrength = display.lcdGrid;
+      (renderer as GLRenderer).smoothEdges = display.filter === 'weich';
+    }
     rendererRef.current = renderer;
     coreRef.current?.attachRenderer(renderer);
 

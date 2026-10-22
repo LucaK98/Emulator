@@ -195,13 +195,42 @@ export function Settings({ isolation, storage, onStorageChange, onClose }: Props
       <section class="panel">
         <h2>Bild</h2>
         <p class="muted">
+          Beides wirkt erst beim nächsten Spielstart.
+        </p>
+
+        <h3 class="setting-heading">Kanten</h3>
+        <p class="muted">
+          Hart zeichnet jeden emulierten Pixel als Block — richtig, solange er ganzzahlig
+          vergrößert wird. Beim DS passen rund 4,6 Gerätepixel auf einen, dann werden manche
+          Reihen dicker als ihre Nachbarn und das Muster wandert beim Scrollen. Weich glättet nur
+          die Übergänge und lässt die Flächen exakt.
+        </p>
+        <div class="segmented" role="group" aria-label="Kanten">
+          {(['hart', 'weich'] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              class={display.filter === option ? 'segment is-active' : 'segment'}
+              aria-pressed={display.filter === option}
+              onClick={() => {
+                const next = { ...display, filter: option };
+                setDisplay(next);
+                saveDisplaySettings(next);
+              }}
+            >
+              {option === 'hart' ? 'Hart' : 'Weich'}
+            </button>
+          ))}
+        </div>
+
+        <h3 class="setting-heading">LCD-Gitter</h3>
+        <p class="muted">
           Ein Gitter zwischen den Pixeln, wie es die Zwischenräume eines LCD zeichnen. Es blendet
-          sich aus, wenn ein emulierter Pixel zu klein wird, um noch eine Lücke zu tragen. Wirkt
-          erst beim nächsten Spielstart.
+          sich aus, wenn ein emulierter Pixel zu klein wird, um noch eine Lücke zu tragen.
         </p>
         <label class="slider">
           <span class="slider-label">
-            LCD-Gitter
+            Stärke
             <span class="slider-value">
               {display.lcdGrid === 0 ? 'aus' : `${Math.round(display.lcdGrid * 100)} %`}
             </span>

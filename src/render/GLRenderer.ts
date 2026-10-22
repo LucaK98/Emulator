@@ -32,10 +32,33 @@ uniform sampler2D u_frame;
 uniform vec2 u_frameSize;   // picture size in emulated pixels
 uniform float u_grid;       // strength of the LCD grid, 0 disables it
 uniform float u_scale;      // how many device pixels one emulated pixel covers
+uniform float u_smooth;     // 1 softens the pixel edges, 0 leaves them hard
 out vec4 outColor;
 
+/*
+ * Where to sample so that only the boundary between two emulated pixels is
+ * blended, over the width of a single output pixel.
+ *
+ * Inside a block the coordinate is pulled onto the texel's own centre, where
+ * linear sampling returns that texel and nothing else — so a flat area keeps
+ * its exact colour. Only within half an output pixel of an edge does the
+ * coordinate run across the boundary, and there linear sampling does the
+ * blending. That is the whole difference from plain smoothing, which averages
+ * everywhere and turns pixel art to mush.
+ */
+vec2 softEdges(vec2 uv) {
+  vec2 texel = uv * u_frameSize;
+  vec2 whole = floor(texel);
+  vec2 within = texel - whole;
+  // Half a texel, less half an output pixel: the part that is safely interior.
+  vec2 flat_ = vec2(0.5 - 0.5 / max(u_scale, 1.0));
+  vec2 fromCentre = within - 0.5;
+  vec2 ramp = (fromCentre - clamp(fromCentre, -flat_, flat_)) * max(u_scale, 1.0);
+  return (whole + 0.5 + ramp) / u_frameSize;
+}
+
 void main() {
-  vec4 colour = texture(u_frame, v_uv);
+  vec4 colour = texture(u_frame, u_smooth > 0.5 ? softEdges(v_uv) : v_uv);
 
   if (u_grid > 0.0) {
     // Darken the edge of every emulated pixel, the way the gaps between an
@@ -66,6 +89,10 @@ export class GLRenderer implements SceneRenderer {
   private frameHeight: number;
   /** LCD grid strength, 0 to 1. */
   gridStrength = 0;
+  /** Whether the edges between emulated pixels are softened. */
+  smoothEdges = false;
+  /** What the sampler is currently set to, so it is only changed when needed. */
+  private textureFilter = 0;
 
   private constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -160,6 +187,7 @@ export class GLRenderer implements SceneRenderer {
       this.spec.height,
     );
     gl.uniform1f(gl.getUniformLocation(this.program, 'u_grid'), this.gridStrength);
+    gl.uniform1f(gl.getUniformLocation(this.program, 'u_smooth'), this.smoothEdges ? 1 : 0);
     gl.uniform1f(
       gl.getUniformLocation(this.program, 'u_scale'),
       view.width / Math.max(1, this.frameWidth),
@@ -167,6 +195,15 @@ export class GLRenderer implements SceneRenderer {
     gl.bindVertexArray(this.vao);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    // Softening the edges is a shader that aims the sample at the right place;
+    // the blending itself is the sampler's, so it needs linear filtering to do
+    // any. Set only when it changes — this runs every frame.
+    const wanted = this.smoothEdges ? gl.LINEAR : gl.NEAREST;
+    if (wanted !== this.textureFilter) {
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, wanted);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, wanted);
+      this.textureFilter = wanted;
+    }
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 

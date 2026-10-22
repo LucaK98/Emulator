@@ -1071,3 +1071,13 @@ h2 {
   font-size: 1rem;
   line-height: 1;
 }
+
+/* A sub-heading inside a settings panel, above its own explanation. */
+.setting-heading {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.9375rem;
+}
+
+.setting-heading:first-of-type {
+  margin-top: 0;
+}
